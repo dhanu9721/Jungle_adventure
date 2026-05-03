@@ -12,10 +12,24 @@
   var screenMenu = document.getElementById("screenMenu");
   var screenWorld = document.getElementById("screenWorld");
   var screenLevel = document.getElementById("screenLevel");
-  var worldGrid = document.getElementById("worldGrid");
   var worldTitle = document.getElementById("worldTitle");
   var worldSubtitle = document.getElementById("worldSubtitle");
-  var worldRangeLabel = document.getElementById("worldRangeLabel");
+  var wsCoinText = document.getElementById("wsCoinText");
+  var wsSvg = document.getElementById("wsSvg");
+  var wsPrev = document.getElementById("wsPrev");
+  var wsNext = document.getElementById("wsNext");
+  var wsPlay = document.getElementById("wsPlay");
+  var statCompleted = document.getElementById("statCompleted");
+  var statTotal = document.getElementById("statTotal");
+
+  var SVG_NS = "http://www.w3.org/2000/svg";
+  var ROMAN = ["I","II","III","IV","V","VI","VII","VIII","IX","X","XI","XII","XIII","XIV","XV"];
+  var ZIGZAG_POSITIONS = [
+    { x:  90, y:  90 }, { x: 220, y:  90 }, { x: 350, y:  90 }, { x: 480, y:  90 }, { x: 610, y:  90 },
+    { x: 700, y: 155 },
+    { x: 610, y: 220 }, { x: 480, y: 220 }, { x: 350, y: 220 }, { x: 220, y: 220 }
+  ];
+  var currentWorldIdx = 0;
 
   var popupSettings = document.getElementById("popupSettings");
   var popupPause = document.getElementById("popupPause");
@@ -107,73 +121,139 @@
     return store.getMaxUnlocked(LEVEL_COUNT);
   }
 
-  function applyWorldHeader() {
-    if (worldTitle) worldTitle.textContent = "Stages";
-    if (worldSubtitle) {
-      var parts = [];
-      for (var wi = 0; wi < WORLDS.length; wi++) {
-        var o = WORLDS[wi];
-        parts.push((o.title || "World") + ": " + (o.subtitle || ""));
-      }
-      worldSubtitle.textContent = parts.join(" · ");
+  function findWorldIndexForLevel(levelIdx) {
+    var n = levelIdx + 1;
+    for (var i = 0; i < WORLDS.length; i++) {
+      var w = WORLDS[i];
+      if (n >= w.levelFrom && n <= w.levelTo) return i;
     }
-    if (worldRangeLabel)
-      worldRangeLabel.textContent = "Levels 1–" + LEVEL_COUNT + " · " + LEVEL_COUNT + " stages";
+    return 0;
   }
 
-  function buildWorldGrid() {
-    if (!worldGrid) return;
-    worldGrid.innerHTML = "";
-    applyWorldHeader();
+  function updateMenuStats() {
+    var done = Math.max(0, maxUnlocked() - 1);
+    if (statCompleted) statCompleted.textContent = String(done);
+    if (statTotal) statTotal.textContent = String(LEVEL_COUNT);
+  }
+
+  function nodePositionsFor(levelCount) {
+    if (levelCount <= 1) return [{ x: 400, y: 155 }];
+    if (levelCount >= ZIGZAG_POSITIONS.length) return ZIGZAG_POSITIONS.slice(0, levelCount);
+    var result = [];
+    var yLine = 155;
+    var totalW = 540;
+    var step = totalW / (levelCount - 1);
+    var startX = (800 - totalW) / 2;
+    for (var i = 0; i < levelCount; i++) result.push({ x: startX + i * step, y: yLine });
+    return result;
+  }
+
+  function renderWorldMap() {
+    if (!wsSvg) return;
+    if (currentWorldIdx < 0) currentWorldIdx = 0;
+    if (currentWorldIdx > WORLDS.length - 1) currentWorldIdx = WORLDS.length - 1;
+    var w = WORLDS[currentWorldIdx];
     var unlocked = maxUnlocked();
-    for (var i = 0; i < LEVEL_COUNT; i++) {
-      var btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "world-level-btn";
-      btn.setAttribute("role", "listitem");
-      btn.setAttribute("data-level-index", String(i));
-      var num = World.levelNumber ? World.levelNumber(i) : i + 1;
-      var nEl = document.createElement("span");
-      nEl.className = "wl-num";
-      nEl.textContent = String(num);
-      var nameEl = document.createElement("span");
-      nameEl.className = "wl-name";
-      var wMeta = World.getWorldForLevelIndex ? World.getWorldForLevelIndex(i) : null;
-      var wShort = wMeta && wMeta.id === 2 ? "W2" : "W1";
-      nameEl.textContent = (LEVEL_NAMES[i] || "Stage " + num) + " · " + wShort;
-      btn.appendChild(nEl);
-      btn.appendChild(nameEl);
-      var isUnlocked = i < unlocked;
-      var isCurrent = i === unlocked - 1;
-      if (isUnlocked) btn.classList.add("is-unlocked");
-      else btn.classList.add("is-locked");
-      if (isUnlocked && isCurrent) btn.classList.add("is-current");
-      btn.disabled = !isUnlocked;
-      btn.setAttribute("aria-label", "Level " + num + (isUnlocked ? "" : " locked"));
-      worldGrid.appendChild(btn);
+
+    if (worldTitle) worldTitle.textContent = (w.title || "World " + (currentWorldIdx + 1)).toUpperCase();
+    if (worldSubtitle) worldSubtitle.textContent = (w.subtitle || "").toUpperCase();
+    if (wsCoinText) {
+      var rn = ROMAN[currentWorldIdx] || String(currentWorldIdx + 1);
+      wsCoinText.innerHTML = "WORLD<br><b>" + rn + "</b>";
     }
+
+    while (wsSvg.firstChild) wsSvg.removeChild(wsSvg.firstChild);
+
+    var plat = document.createElementNS(SVG_NS, "path");
+    plat.setAttribute(
+      "d",
+      "M 50 50 L 720 50 Q 760 50, 760 90 L 760 230 Q 760 270, 720 270 " +
+      "L 50 270 Q 10 270, 10 230 L 10 90 Q 10 50, 50 50 Z"
+    );
+    plat.setAttribute("class", "ws-platform");
+    wsSvg.appendChild(plat);
+
+    for (var tx = 30; tx < 760; tx += 26) {
+      var tuft = document.createElementNS(SVG_NS, "path");
+      tuft.setAttribute("d", "M " + tx + " 50 q 4 -8 8 0 q 4 -10 8 0");
+      tuft.setAttribute("class", "ws-grass");
+      wsSvg.appendChild(tuft);
+    }
+    var dirt = document.createElementNS(SVG_NS, "path");
+    dirt.setAttribute(
+      "d",
+      "M 10 230 L 760 230 Q 760 270, 720 270 L 50 270 Q 10 270, 10 230 Z"
+    );
+    dirt.setAttribute("class", "ws-dirt");
+    wsSvg.appendChild(dirt);
+
+    var levelFromIdx = w.levelFrom - 1;
+    var levelToIdx = w.levelTo - 1;
+    var levelCount = levelToIdx - levelFromIdx + 1;
+    var positions = nodePositionsFor(levelCount);
+
+    var pathD = "";
+    for (var i = 0; i < positions.length - 1; i++) {
+      var p = positions[i], q = positions[i + 1];
+      pathD += "M " + p.x + " " + p.y + " L " + q.x + " " + q.y + " ";
+    }
+    if (pathD) {
+      var pathEl = document.createElementNS(SVG_NS, "path");
+      pathEl.setAttribute("d", pathD);
+      pathEl.setAttribute("class", "ws-path");
+      wsSvg.appendChild(pathEl);
+    }
+
+    positions.forEach(function (pos, idx) {
+      var globalIdx = levelFromIdx + idx;
+      var isUnlocked = globalIdx < unlocked;
+      var isCurrent = globalIdx === unlocked - 1;
+      var levelNum = globalIdx + 1;
+      var g = document.createElementNS(SVG_NS, "g");
+      var classes = ["ws-node", isUnlocked ? "unlocked" : "locked"];
+      if (isUnlocked && isCurrent) classes.push("is-current");
+      g.setAttribute("class", classes.join(" "));
+      g.setAttribute("transform", "translate(" + pos.x + ", " + pos.y + ")");
+      g.setAttribute("data-level-index", String(globalIdx));
+      g.setAttribute("role", "button");
+      g.setAttribute("aria-label", "Level " + levelNum + (isUnlocked ? "" : " locked"));
+
+      var circle = document.createElementNS(SVG_NS, "circle");
+      circle.setAttribute("r", 22);
+      circle.setAttribute("class", "node-circle");
+      g.appendChild(circle);
+
+      var text = document.createElementNS(SVG_NS, "text");
+      text.setAttribute("text-anchor", "middle");
+      text.setAttribute("dominant-baseline", "central");
+      text.setAttribute("class", "node-text");
+      text.textContent = isUnlocked ? String(levelNum) : "🔒";
+      g.appendChild(text);
+
+      wsSvg.appendChild(g);
+    });
+
+    if (wsPrev) wsPrev.disabled = currentWorldIdx === 0;
+    if (wsNext) wsNext.disabled = currentWorldIdx === WORLDS.length - 1;
   }
 
-  /** Delegated pick: taps often land on inner spans; Unity WebView may omit click after touch. */
   function handleWorldLevelInput(e) {
-    if (!worldGrid) return;
     if (e.pointerType === "mouse" && typeof e.button === "number" && e.button !== 0) return;
     var raw = e.target;
     if (!raw || !raw.closest) return;
-    var btn = raw.closest(".world-level-btn");
-    if (!btn || btn.disabled || btn.classList.contains("is-locked")) return;
-    if (!worldGrid.contains(btn)) return;
+    var node = raw.closest(".ws-node");
+    if (!node || !node.classList.contains("unlocked")) return;
     var now = Date.now();
     if (now - lastWorldPickMs < 320) return;
     lastWorldPickMs = now;
-    var ix = parseInt(btn.getAttribute("data-level-index"), 10);
+    var ix = parseInt(node.getAttribute("data-level-index"), 10);
     if (isNaN(ix) || ix < 0 || ix >= LEVEL_COUNT) return;
     playingLevelIndex = ix;
     enterLevelScreen();
   }
 
   function refreshWorldSelect() {
-    buildWorldGrid();
+    renderWorldMap();
   }
 
   function leaveLevelToWorld() {
@@ -188,6 +268,7 @@
     Game.unmount();
     Game.setPaused(false);
     closePopup("all");
+    updateMenuStats();
     showScreen("menu");
   }
 
@@ -360,13 +441,53 @@
     }
   }
 
+  function nextUnlockedLevel() {
+    return Math.max(0, Math.min(LEVEL_COUNT - 1, maxUnlocked() - 1));
+  }
+
   document.getElementById("btnPlay").addEventListener("click", function () {
+    currentWorldIdx = findWorldIndexForLevel(nextUnlockedLevel());
     showScreen("world");
     refreshWorldSelect();
   });
 
+  var btnQuickPlay = document.getElementById("btnQuickPlay");
+  if (btnQuickPlay) {
+    btnQuickPlay.addEventListener("click", function () {
+      playingLevelIndex = nextUnlockedLevel();
+      enterLevelScreen();
+    });
+  }
+
+  if (wsPlay) {
+    wsPlay.addEventListener("click", function () {
+      var w = WORLDS[currentWorldIdx];
+      var startIdx = w ? w.levelFrom - 1 : 0;
+      var endIdx = w ? w.levelTo - 1 : LEVEL_COUNT - 1;
+      var unlocked = maxUnlocked();
+      var pick = startIdx;
+      for (var i = startIdx; i <= endIdx; i++) {
+        if (i < unlocked) { pick = i; if (i === unlocked - 1) break; }
+      }
+      playingLevelIndex = pick;
+      enterLevelScreen();
+    });
+  }
+
+  if (wsPrev) {
+    wsPrev.addEventListener("click", function () {
+      if (currentWorldIdx > 0) { currentWorldIdx--; renderWorldMap(); }
+    });
+  }
+  if (wsNext) {
+    wsNext.addEventListener("click", function () {
+      if (currentWorldIdx < WORLDS.length - 1) { currentWorldIdx++; renderWorldMap(); }
+    });
+  }
+
   document.getElementById("btnWorldBack").addEventListener("click", function () {
     showScreen("menu");
+    updateMenuStats();
   });
 
   document.getElementById("btnMenuSettings").addEventListener("click", function () {
@@ -415,9 +536,9 @@
     });
   }
 
-  if (worldGrid) {
-    worldGrid.addEventListener("click", handleWorldLevelInput, false);
-    worldGrid.addEventListener("pointerup", handleWorldLevelInput, false);
+  if (wsSvg) {
+    wsSvg.addEventListener("click", handleWorldLevelInput, false);
+    wsSvg.addEventListener("pointerup", handleWorldLevelInput, false);
   }
 
   window.addEventListener(
@@ -428,6 +549,8 @@
     false
   );
 
-  buildWorldGrid();
+  currentWorldIdx = findWorldIndexForLevel(nextUnlockedLevel());
+  renderWorldMap();
+  updateMenuStats();
   showScreen("menu");
 })();

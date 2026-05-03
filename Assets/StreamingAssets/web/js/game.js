@@ -19,6 +19,8 @@
   var GROUND = ROWS - 2;
   /** Level Devil extras (void tiles, bombs, random crumbles) only from this 0-based index onward (11th stage). */
   var DEVIL_DIFFICULTY_FROM_INDEX = 10;
+  /** Devil-mode (random sky bombs and floor voids) only fires inside this index range. New worlds (4+) opt out. */
+  var DEVIL_DIFFICULTY_TO_INDEX = 30;
   var LEVEL_H = ROWS * TILE;
   /** Base 16:9 reference; H stays at BASE_H so vertical ground/sky framing stays consistent. */
   var BASE_W = 960;
@@ -57,6 +59,10 @@
     jumpBuf: 0,
     alive: true,
     deathT: 0,
+    portalLockIdx: -1,
+    gravityDir: 1,
+    gravityFlipCooldown: 0,
+    controlsReverseT: 0,
   };
 
   var cameraX = 0;
@@ -86,6 +92,25 @@
   var bombs = [];
   var volatileRestores = [];
   var devilTimer = 0;
+
+  /** Up to 2 P-tiles per level; entering one teleports to the other. */
+  var portals = [];
+
+  /** Rolling boulders: hazards that roll along the ground at constant velocity, respawn after leaving range. */
+  var boulders = [];
+
+  /** Homing missiles: track the player and accelerate toward them. Die on hitting a solid tile or off-screen. */
+  var missiles = [];
+
+  /** Reverser items: pop up randomly ahead of the player. Touching one inverts left/right input for ~4s. */
+  var reversers = [];
+  var reverserActive = false;
+  var reverserSpawnT = 0;
+  var reverserSpawnMin = 180;
+  var reverserSpawnMax = 360;
+
+  /** Frames remaining to show "collect all gems" banner when player touches end flag without all gems. */
+  var gemHintT = 0;
 
   var ctx = null;
   var canvas = null;
@@ -603,7 +628,7 @@
     var ec = COLS_ - 1;
     setRect(GROUND_, 0, GROUND_, ec, "G");
     setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
-    for (var r = GROUND_; r < ROWS; r++) for (var c = 20; c <= 24; c++) set(r, c, " ");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 21; c <= 23; c++) set(r, c, " ");
     setRect(GROUND_ - 2, 12, GROUND_ - 2, 16, "F");
     set(GROUND_ - 1, 14, "X");
     setRect(GROUND_ - 1, 28, GROUND_ - 1, 32, "S");
@@ -629,8 +654,8 @@
     set(GROUND_ - 1, 26, "X");
     set(GROUND_ - 2, 40, GROUND_ - 2, 42, "F");
     set(GROUND_ - 1, 12, "C");
-    set(GROUND_ - 1, 52, "C");
-    set(GROUND_ - 1, ec - 2, "E");
+    set(GROUND_ - 1, 44, "C");
+    set(GROUND_ - 1, ec - 1, "E");
     var mv = [
       {
         x: 20 * TILE - 8,
@@ -805,7 +830,12 @@
     setRect(GROUND_ - 1, 26, GROUND_ - 1, 32, "S");
     setRect(GROUND_ - 2, 28, GROUND_ - 2, 32, "S");
     set(GROUND_, 36, "B");
-    set(GROUND_ - 2, 34, GROUND_ - 2, 34, "F");
+    setRect(GROUND_ - 2, 34, GROUND_ - 2, 34, "F");
+    setRect(GROUND_ - 6, 38, GROUND_ - 6, 42, "G");
+    setRect(GROUND_ - 5, 38, GROUND_ - 5, 42, "D");
+    set(GROUND_ - 3, 30, "P");
+    set(GROUND_ - 7, 40, "P");
+    set(GROUND_ - 7, 41, "C");
     set(GROUND_ - 1, 10, "C");
     set(GROUND_ - 1, ec - 2, "E");
     return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: [] };
@@ -831,8 +861,8 @@
     var ec = COLS_ - 1;
     setRect(GROUND_, 0, GROUND_, ec, "G");
     setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
-    for (var r = GROUND_; r < ROWS; r++) for (var c = 14; c <= 18; c++) set(r, c, " ");
-    for (r = GROUND_; r < ROWS; r++) for (var c2 = 34; c2 <= 38; c2++) set(r, c2, " ");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 15; c <= 17; c++) set(r, c, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 35; c2 <= 37; c2++) set(r, c2, " ");
     set(GROUND_ - 1, 28, "X");
     set(GROUND_ - 1, 52, "X");
     addVineColumn(set, setRect, GROUND_, 40, 41, 45);
@@ -909,18 +939,18 @@
     var ec = COLS_ - 1;
     setRect(GROUND_, 0, GROUND_, ec, "G");
     setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
-    for (var r = GROUND_; r < ROWS; r++) for (var c = 14; c <= 17; c++) set(r, c, " ");
-    for (r = GROUND_; r < ROWS; r++) for (var c2 = 32; c2 <= 35; c2++) set(r, c2, " ");
-    for (r = GROUND_; r < ROWS; r++) for (var c3 = 54; c3 <= 57; c3++) set(r, c3, " ");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 15; c <= 17; c++) set(r, c, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 33; c2 <= 35; c2++) set(r, c2, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c3 = 55; c3 <= 57; c3++) set(r, c3, " ");
     set(GROUND_ - 1, 24, "X");
     set(GROUND_ - 1, 44, "X");
     set(GROUND_ - 1, 68, "X");
     set(GROUND_, 28, "B");
     set(GROUND_, 48, "B");
     set(GROUND_, 64, "B");
-    setRect(GROUND_ - 2, 36, GROUND_ - 2, 37, "F");
-    setRect(GROUND_ - 2, 58, GROUND_ - 2, 59, "F");
-    set(GROUND_ - 3, 36, "C");
+    setRect(GROUND_ - 2, 38, GROUND_ - 2, 39, "F");
+    setRect(GROUND_ - 2, 60, GROUND_ - 2, 61, "F");
+    set(GROUND_ - 3, 38, "C");
     set(GROUND_ - 1, 10, "C");
     set(GROUND_ - 1, ec - 2, "E");
     var mv = [
@@ -948,10 +978,3051 @@
     return { spawn: { x: 48, y: (GROUND_ - 1) * TILE - 2 }, movers: mv };
   }
 
+  function buildLevel30(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 12; c <= 14; c++) set(r, c, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 30; c2 <= 32; c2++) set(r, c2, " ");
+    setRect(GROUND_ - 2, 20, GROUND_ - 2, 22, "F");
+    set(GROUND_ - 3, 21, "C");
+    setRect(GROUND_ - 2, 38, GROUND_ - 2, 40, "S");
+    set(GROUND_ - 3, 39, "C");
+    set(GROUND_ - 1, 18, "X");
+    set(GROUND_, 26, "B");
+    set(GROUND_ - 1, 35, "X");
+    set(GROUND_, 44, "B");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: [] };
+  }
+
+  function buildLevel31(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c = 12; c <= 26; c++) set(GROUND_ - 1, c, "X");
+    set(GROUND_ - 2, 12, "S");
+    set(GROUND_ - 2, 16, "S");
+    set(GROUND_ - 2, 20, "S");
+    set(GROUND_ - 2, 24, "S");
+    set(GROUND_ - 3, 16, "C");
+    set(GROUND_ - 3, 20, "C");
+    set(GROUND_ - 3, 24, "C");
+    for (var r = GROUND_; r < ROWS; r++) for (var c2 = 32; c2 <= 34; c2++) set(r, c2, " ");
+    setRect(GROUND_ - 2, 33, GROUND_ - 2, 33, "F");
+    set(GROUND_, 40, "B");
+    set(GROUND_ - 1, 45, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: [] };
+  }
+
+  function buildLevel32(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 16; c <= 18; c++) set(r, c, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 40; c2 <= 42; c2++) set(r, c2, " ");
+    addVineColumn(set, setRect, GROUND_, 22, 23, 27);
+    set(GROUND_ - 8, 24, "C");
+    set(GROUND_ - 8, 26, "C");
+    addVineColumn(set, setRect, GROUND_, 46, 47, 51);
+    set(GROUND_ - 8, 48, "C");
+    set(GROUND_ - 8, 50, "C");
+    set(GROUND_ - 1, 32, "X");
+    set(GROUND_, 36, "B");
+    set(GROUND_ - 1, 54, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: [] };
+  }
+
+  function buildLevel33(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 14; c <= 24; c++) set(r, c, " ");
+    setRect(GROUND_ - 2, 15, GROUND_ - 2, 15, "F");
+    setRect(GROUND_ - 2, 18, GROUND_ - 2, 18, "F");
+    setRect(GROUND_ - 2, 21, GROUND_ - 2, 21, "F");
+    set(GROUND_ - 3, 18, "C");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 36; c2 <= 38; c2++) set(r, c2, " ");
+    set(GROUND_, 32, "B");
+    set(GROUND_ - 1, 44, "X");
+    set(GROUND_, 48, "B");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 28, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    var mv = [
+      {
+        x: 14 * TILE - 8,
+        y: GROUND_ * TILE,
+        w: TILE * 2,
+        h: 16,
+        x0: 14 * TILE,
+        x1: 24 * TILE - TILE * 2 + 8,
+        dir: 1,
+        speed: 1.6,
+      },
+    ];
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: mv };
+  }
+
+  function buildLevel34(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 12; c <= 14; c++) set(r, c, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 28; c2 <= 36; c2++) set(r, c2, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c3 = 52; c3 <= 58; c3++) set(r, c3, " ");
+    setRect(GROUND_ - 2, 30, GROUND_ - 2, 30, "F");
+    setRect(GROUND_ - 2, 34, GROUND_ - 2, 34, "F");
+    set(GROUND_ - 3, 30, "C");
+    addVineColumn(set, setRect, GROUND_, 44, 45, 49);
+    set(GROUND_ - 8, 47, "C");
+    set(GROUND_ - 1, 20, "X");
+    set(GROUND_, 24, "B");
+    set(GROUND_ - 1, 41, "X");
+    set(GROUND_, 50, "B");
+    set(GROUND_ - 1, 61, "X");
+    setRect(GROUND_ - 2, 62, GROUND_ - 2, 64, "S");
+    set(GROUND_ - 3, 63, "C");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 18, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    var mv = [
+      {
+        x: 28 * TILE - 8,
+        y: GROUND_ * TILE,
+        w: TILE * 2,
+        h: 16,
+        x0: 28 * TILE,
+        x1: 37 * TILE - TILE * 2 + 8,
+        dir: 1,
+        speed: 1.55,
+      },
+      {
+        x: 52 * TILE - 8,
+        y: GROUND_ * TILE,
+        w: TILE * 2,
+        h: 16,
+        x0: 52 * TILE,
+        x1: 58 * TILE - TILE * 2 + 8,
+        dir: -1,
+        speed: 1.45,
+      },
+    ];
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: mv };
+  }
+
+  function buildLevel35(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 12; c <= 14; c++) set(r, c, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 64; c2 <= 66; c2++) set(r, c2, " ");
+    set(GROUND_ - 1, 22, "P");
+    set(GROUND_ - 1, 56, "P");
+    set(GROUND_, 28, "B");
+    set(GROUND_ - 1, 34, "X");
+    set(GROUND_, 40, "B");
+    set(GROUND_ - 1, 46, "X");
+    set(GROUND_ - 1, 25, "C");
+    set(GROUND_ - 1, 31, "C");
+    set(GROUND_ - 1, 37, "C");
+    set(GROUND_ - 1, 43, "C");
+    set(GROUND_ - 1, 49, "C");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 70, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: [] };
+  }
+
+  function buildLevel36(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c = 18; c <= 48; c++) set(GROUND_ - 1, c, "X");
+    addVineColumn(set, setRect, GROUND_, 14, 15, 17);
+    set(GROUND_ - 8, 16, "P");
+    set(GROUND_ - 8, 15, "C");
+    set(GROUND_ - 1, 52, "P");
+    for (var r = GROUND_; r < ROWS; r++) for (var c2 = 60; c2 <= 62; c2++) set(r, c2, " ");
+    set(GROUND_ - 1, 56, "C");
+    set(GROUND_ - 1, 68, "X");
+    set(GROUND_, 74, "B");
+    set(GROUND_ - 1, 80, "X");
+    setRect(GROUND_ - 2, 70, GROUND_ - 2, 72, "S");
+    set(GROUND_ - 3, 71, "C");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 66, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: [] };
+  }
+
+  function buildLevel37(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 14; c <= 16; c++) set(r, c, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 30; c2 <= 32; c2++) set(r, c2, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c3 = 52; c3 <= 54; c3++) set(r, c3, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c4 = 74; c4 <= 76; c4++) set(r, c4, " ");
+    setRect(GROUND_ - 2, 22, GROUND_ - 2, 22, "F");
+    setRect(GROUND_ - 2, 42, GROUND_ - 2, 44, "S");
+    set(GROUND_ - 3, 43, "C");
+    addVineColumn(set, setRect, GROUND_, 60, 61, 65);
+    set(GROUND_ - 8, 62, "C");
+    set(GROUND_ - 8, 64, "C");
+    set(GROUND_ - 1, 20, "X");
+    set(GROUND_, 26, "B");
+    set(GROUND_ - 1, 38, "X");
+    set(GROUND_, 48, "B");
+    set(GROUND_ - 1, 70, "X");
+    set(GROUND_, 82, "B");
+    set(GROUND_ - 1, 88, "X");
+    setRect(GROUND_ - 2, 80, GROUND_ - 2, 82, "F");
+    set(GROUND_ - 3, 81, "C");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 36, "C");
+    set(GROUND_ - 1, 58, "C");
+    set(GROUND_ - 1, 92, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: [] };
+  }
+
+  function buildLevel38(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    set(GROUND_, 12, "B");
+    set(GROUND_, 16, "B");
+    set(GROUND_, 20, "B");
+    set(GROUND_, 24, "B");
+    set(GROUND_, 28, "B");
+    set(GROUND_ - 1, 14, "X");
+    set(GROUND_ - 1, 22, "X");
+    set(GROUND_ - 1, 26, "X");
+    set(GROUND_ - 1, 32, "P");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 38; c <= 46; c++) set(r, c, " ");
+    set(GROUND_ - 1, 64, "P");
+    set(GROUND_, 54, "B");
+    set(GROUND_ - 1, 58, "X");
+    set(GROUND_, 70, "B");
+    set(GROUND_ - 1, 74, "X");
+    set(GROUND_, 78, "B");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 84; c2 <= 86; c2++) set(r, c2, " ");
+    setRect(GROUND_ - 2, 40, GROUND_ - 2, 44, "S");
+    set(GROUND_ - 3, 42, "C");
+    set(GROUND_ - 1, 8, "C");
+    set(GROUND_ - 1, 18, "C");
+    set(GROUND_ - 1, 50, "C");
+    set(GROUND_ - 1, 81, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    var mv = [
+      {
+        x: 38 * TILE - 8,
+        y: GROUND_ * TILE,
+        w: TILE * 2,
+        h: 16,
+        x0: 38 * TILE,
+        x1: 47 * TILE - TILE * 2 + 8,
+        dir: 1,
+        speed: 1.5,
+      },
+    ];
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: mv };
+  }
+
+  function buildLevel39(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 14; c <= 16; c++) set(r, c, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 32; c2 <= 40; c2++) set(r, c2, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c3 = 60; c3 <= 62; c3++) set(r, c3, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c4 = 84; c4 <= 92; c4++) set(r, c4, " ");
+    set(GROUND_ - 1, 28, "P");
+    setRect(GROUND_ - 2, 34, GROUND_ - 2, 34, "F");
+    setRect(GROUND_ - 2, 38, GROUND_ - 2, 38, "F");
+    setRect(GROUND_ - 2, 88, GROUND_ - 2, 88, "F");
+    addVineColumn(set, setRect, GROUND_, 50, 51, 55);
+    set(GROUND_ - 8, 53, "C");
+    set(GROUND_ - 8, 70, "P");
+    setRect(GROUND_ - 7, 68, GROUND_ - 7, 72, "G");
+    setRect(GROUND_ - 6, 68, GROUND_ - 6, 72, "D");
+    set(GROUND_ - 8, 72, "C");
+    setRect(GROUND_ - 2, 76, GROUND_ - 2, 78, "S");
+    set(GROUND_ - 3, 77, "C");
+    set(GROUND_ - 1, 22, "X");
+    set(GROUND_, 26, "B");
+    set(GROUND_ - 1, 44, "X");
+    set(GROUND_, 48, "B");
+    set(GROUND_ - 1, 66, "X");
+    set(GROUND_, 82, "B");
+    set(GROUND_ - 1, 96, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 24, "C");
+    set(GROUND_ - 1, 46, "C");
+    set(GROUND_ - 1, 100, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    var mv = [
+      {
+        x: 32 * TILE - 8,
+        y: GROUND_ * TILE,
+        w: TILE * 2,
+        h: 16,
+        x0: 32 * TILE,
+        x1: 41 * TILE - TILE * 2 + 8,
+        dir: 1,
+        speed: 1.5,
+      },
+      {
+        x: 84 * TILE - 8,
+        y: GROUND_ * TILE,
+        w: TILE * 2,
+        h: 16,
+        x0: 84 * TILE,
+        x1: 93 * TILE - TILE * 2 + 8,
+        dir: -1,
+        speed: 1.45,
+      },
+    ];
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: mv };
+  }
+
+  function buildLevel40(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 12; c <= 14; c++) set(r, c, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 58; c2 <= 60; c2++) set(r, c2, " ");
+    setRect(GROUND_ - 5, 30, GROUND_ - 5, 36, "G");
+    setRect(GROUND_ - 4, 30, GROUND_ - 4, 36, "D");
+    set(GROUND_ - 6, 33, "C");
+    set(GROUND_ - 1, 18, "X");
+    set(GROUND_, 24, "B");
+    set(GROUND_ - 1, 44, "X");
+    set(GROUND_, 50, "B");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 40, "C");
+    set(GROUND_ - 1, 64, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    var mv = [
+      {
+        axis: "y",
+        x: 28 * TILE,
+        y: GROUND_ * TILE,
+        w: TILE * 2,
+        h: 16,
+        y0: (GROUND_ - 5) * TILE,
+        y1: GROUND_ * TILE,
+        dir: -1,
+        speed: 1.3,
+      },
+    ];
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: mv };
+  }
+
+  function buildLevel41(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 16; c <= 36; c++) set(r, c, " ");
+    setRect(GROUND_ - 5, 24, GROUND_ - 5, 28, "G");
+    setRect(GROUND_ - 4, 24, GROUND_ - 4, 28, "D");
+    set(GROUND_ - 6, 26, "C");
+    set(GROUND_ - 1, 44, "X");
+    set(GROUND_, 50, "B");
+    set(GROUND_ - 1, 56, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 40, "C");
+    set(GROUND_ - 1, 70, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    var mv = [
+      {
+        axis: "y",
+        x: 18 * TILE,
+        y: GROUND_ * TILE,
+        w: TILE * 2,
+        h: 16,
+        y0: (GROUND_ - 5) * TILE,
+        y1: GROUND_ * TILE,
+        dir: -1,
+        speed: 1.4,
+      },
+      {
+        axis: "y",
+        x: 32 * TILE,
+        y: (GROUND_ - 5) * TILE,
+        w: TILE * 2,
+        h: 16,
+        y0: (GROUND_ - 5) * TILE,
+        y1: GROUND_ * TILE,
+        dir: 1,
+        speed: 1.5,
+      },
+    ];
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: mv };
+  }
+
+  function buildLevel42(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 14; c <= 16; c++) set(r, c, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 30; c2 <= 38; c2++) set(r, c2, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c3 = 70; c3 <= 72; c3++) set(r, c3, " ");
+    setRect(GROUND_ - 4, 50, GROUND_ - 4, 56, "G");
+    setRect(GROUND_ - 3, 50, GROUND_ - 3, 56, "D");
+    set(GROUND_ - 5, 53, "C");
+    set(GROUND_ - 1, 22, "X");
+    set(GROUND_, 26, "B");
+    set(GROUND_ - 1, 42, "X");
+    set(GROUND_, 62, "B");
+    set(GROUND_ - 1, 78, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 46, "C");
+    set(GROUND_ - 1, 66, "C");
+    set(GROUND_ - 1, 84, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    var mv = [
+      {
+        x: 30 * TILE - 8,
+        y: GROUND_ * TILE,
+        w: TILE * 2,
+        h: 16,
+        x0: 30 * TILE,
+        x1: 39 * TILE - TILE * 2 + 8,
+        dir: 1,
+        speed: 1.55,
+      },
+      {
+        axis: "y",
+        x: 60 * TILE,
+        y: GROUND_ * TILE,
+        w: TILE * 2,
+        h: 16,
+        y0: (GROUND_ - 4) * TILE,
+        y1: GROUND_ * TILE,
+        dir: -1,
+        speed: 1.4,
+      },
+    ];
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: mv };
+  }
+
+  function buildLevel43(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 14; c <= 16; c++) set(r, c, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 36; c2 <= 38; c2++) set(r, c2, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c3 = 80; c3 <= 82; c3++) set(r, c3, " ");
+    set(GROUND_ - 1, 24, "P");
+    setRect(GROUND_ - 6, 56, GROUND_ - 6, 62, "G");
+    setRect(GROUND_ - 5, 56, GROUND_ - 5, 62, "D");
+    set(GROUND_ - 7, 59, "P");
+    set(GROUND_ - 7, 60, "C");
+    set(GROUND_ - 7, 58, "C");
+    set(GROUND_ - 1, 46, "X");
+    set(GROUND_, 50, "B");
+    set(GROUND_ - 1, 70, "X");
+    set(GROUND_, 74, "B");
+    set(GROUND_ - 1, 88, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 30, "C");
+    set(GROUND_ - 1, 66, "C");
+    set(GROUND_ - 1, 84, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    var mv = [
+      {
+        axis: "y",
+        x: 52 * TILE,
+        y: GROUND_ * TILE,
+        w: TILE * 2,
+        h: 16,
+        y0: (GROUND_ - 6) * TILE,
+        y1: GROUND_ * TILE,
+        dir: -1,
+        speed: 1.45,
+      },
+    ];
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: mv };
+  }
+
+  function buildLevel44(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 14; c <= 16; c++) set(r, c, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 32; c2 <= 40; c2++) set(r, c2, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c3 = 60; c3 <= 62; c3++) set(r, c3, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c4 = 88; c4 <= 96; c4++) set(r, c4, " ");
+    setRect(GROUND_ - 5, 50, GROUND_ - 5, 56, "G");
+    setRect(GROUND_ - 4, 50, GROUND_ - 4, 56, "D");
+    set(GROUND_ - 6, 53, "C");
+    setRect(GROUND_ - 2, 76, GROUND_ - 2, 78, "F");
+    set(GROUND_ - 3, 77, "C");
+    addVineColumn(set, setRect, GROUND_, 100, 101, 105);
+    set(GROUND_ - 8, 103, "C");
+    set(GROUND_ - 1, 22, "X");
+    set(GROUND_, 26, "B");
+    set(GROUND_ - 1, 44, "X");
+    set(GROUND_, 48, "B");
+    set(GROUND_ - 1, 70, "X");
+    set(GROUND_, 84, "B");
+    set(GROUND_ - 1, 110, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 30, "C");
+    set(GROUND_ - 1, 66, "C");
+    set(GROUND_ - 1, 100, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    var mv = [
+      {
+        x: 32 * TILE - 8,
+        y: GROUND_ * TILE,
+        w: TILE * 2,
+        h: 16,
+        x0: 32 * TILE,
+        x1: 41 * TILE - TILE * 2 + 8,
+        dir: 1,
+        speed: 1.55,
+      },
+      {
+        axis: "y",
+        x: 46 * TILE,
+        y: GROUND_ * TILE,
+        w: TILE * 2,
+        h: 16,
+        y0: (GROUND_ - 5) * TILE,
+        y1: GROUND_ * TILE,
+        dir: -1,
+        speed: 1.4,
+      },
+      {
+        x: 88 * TILE - 8,
+        y: GROUND_ * TILE,
+        w: TILE * 2,
+        h: 16,
+        x0: 88 * TILE,
+        x1: 97 * TILE - TILE * 2 + 8,
+        dir: -1,
+        speed: 1.5,
+      },
+    ];
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: mv };
+  }
+
+  function buildLevel45(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    setRect(GROUND_ - 4, 54, GROUND_ - 4, 72, "G");
+    setRect(GROUND_ - 3, 54, GROUND_ - 3, 72, "D");
+    set(GROUND_ - 1, 50, "S");
+    setRect(GROUND_ - 2, 51, GROUND_ - 1, 51, "S");
+    setRect(GROUND_ - 3, 52, GROUND_ - 1, 52, "S");
+    setRect(GROUND_ - 4, 53, GROUND_ - 1, 53, "S");
+    set(GROUND_ - 1, 22, "X");
+    set(GROUND_, 30, "B");
+    set(GROUND_ - 1, 44, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 36, "C");
+    set(GROUND_ - 1, 50, "C");
+    set(GROUND_ - 5, 60, "C");
+    set(GROUND_ - 1, 78, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 71 * TILE,
+          y: (GROUND_ - 4) * TILE - 18,
+          vx: -2.6,
+          w: 36, h: 36,
+          endX: 64 * TILE,
+          cooldown: 320,
+          initialDelay: 150,
+        },
+      ],
+    };
+  }
+
+  function buildLevel46(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 28; c <= 30; c++) set(r, c, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 60; c2 <= 62; c2++) set(r, c2, " ");
+    setRect(GROUND_ - 4, 75, GROUND_ - 4, 88, "G");
+    setRect(GROUND_ - 3, 75, GROUND_ - 3, 88, "D");
+    set(GROUND_ - 1, 71, "S");
+    setRect(GROUND_ - 2, 72, GROUND_ - 1, 72, "S");
+    setRect(GROUND_ - 3, 73, GROUND_ - 1, 73, "S");
+    setRect(GROUND_ - 4, 74, GROUND_ - 1, 74, "S");
+    set(GROUND_ - 1, 14, "X");
+    set(GROUND_, 22, "B");
+    set(GROUND_ - 1, 42, "X");
+    set(GROUND_, 50, "B");
+    set(GROUND_ - 1, 70, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 18, "C");
+    set(GROUND_ - 1, 34, "C");
+    set(GROUND_ - 1, 56, "C");
+    set(GROUND_ - 5, 82, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 86 * TILE,
+          y: (GROUND_ - 4) * TILE - 18,
+          vx: -3.4,
+          w: 36, h: 36,
+          endX: 78 * TILE,
+          cooldown: 160,
+          initialDelay: 0,
+        },
+        {
+          spawnX: 26 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -2.8,
+          w: 36, h: 36,
+          endX: 4 * TILE,
+          cooldown: 220,
+          initialDelay: 90,
+        },
+      ],
+    };
+  }
+
+  function buildLevel47(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 18; c <= 20; c++) set(r, c, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 40; c2 <= 42; c2++) set(r, c2, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c3 = 70; c3 <= 72; c3++) set(r, c3, " ");
+    setRect(GROUND_ - 2, 28, GROUND_ - 2, 32, "S");
+    set(GROUND_ - 3, 30, "C");
+    setRect(GROUND_ - 2, 50, GROUND_ - 2, 52, "F");
+    set(GROUND_ - 3, 51, "C");
+    set(GROUND_ - 1, 26, "X");
+    set(GROUND_, 36, "B");
+    set(GROUND_ - 1, 60, "X");
+    set(GROUND_, 66, "B");
+    set(GROUND_ - 1, 80, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 46, "C");
+    set(GROUND_ - 1, 76, "C");
+    set(GROUND_ - 1, 86, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 90 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.6,
+          w: 36, h: 36,
+          endX: 4 * TILE,
+          cooldown: 180,
+          initialDelay: 30,
+        },
+      ],
+    };
+  }
+
+  function buildLevel48(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 14; c <= 16; c++) set(r, c, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 36; c2 <= 38; c2++) set(r, c2, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c3 = 64; c3 <= 66; c3++) set(r, c3, " ");
+    setRect(GROUND_ - 5, 46, GROUND_ - 5, 56, "G");
+    setRect(GROUND_ - 4, 46, GROUND_ - 4, 56, "D");
+    set(GROUND_ - 6, 51, "C");
+    addVineColumn(set, setRect, GROUND_, 80, 81, 85);
+    set(GROUND_ - 8, 83, "C");
+    set(GROUND_ - 1, 22, "X");
+    set(GROUND_, 28, "B");
+    set(GROUND_ - 1, 44, "X");
+    set(GROUND_, 60, "B");
+    set(GROUND_ - 1, 74, "X");
+    set(GROUND_ - 1, 90, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 32, "C");
+    set(GROUND_ - 1, 70, "C");
+    set(GROUND_ - 1, 96, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [
+        {
+          axis: "y",
+          x: 42 * TILE,
+          y: GROUND_ * TILE,
+          w: TILE * 2,
+          h: 16,
+          y0: (GROUND_ - 5) * TILE,
+          y1: GROUND_ * TILE,
+          dir: -1,
+          speed: 1.45,
+        },
+      ],
+      boulders: [
+        {
+          spawnX: 95 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.2,
+          w: 36, h: 36,
+          endX: 18 * TILE,
+          cooldown: 180,
+          initialDelay: 0,
+        },
+      ],
+    };
+  }
+
+  function buildLevel49(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 14; c <= 16; c++) set(r, c, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 38; c2 <= 46; c2++) set(r, c2, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c3 = 78; c3 <= 80; c3++) set(r, c3, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c4 = 110; c4 <= 118; c4++) set(r, c4, " ");
+    setRect(GROUND_ - 6, 56, GROUND_ - 6, 66, "G");
+    setRect(GROUND_ - 5, 56, GROUND_ - 5, 66, "D");
+    set(GROUND_ - 7, 60, "P");
+    set(GROUND_ - 1, 28, "P");
+    setRect(GROUND_ - 2, 92, GROUND_ - 2, 96, "F");
+    set(GROUND_ - 3, 94, "C");
+    addVineColumn(set, setRect, GROUND_, 100, 101, 105);
+    set(GROUND_ - 8, 103, "C");
+    set(GROUND_ - 7, 61, "C");
+    set(GROUND_ - 7, 63, "C");
+    set(GROUND_ - 1, 22, "X");
+    set(GROUND_, 32, "B");
+    set(GROUND_ - 1, 50, "X");
+    set(GROUND_, 70, "B");
+    set(GROUND_ - 1, 86, "X");
+    set(GROUND_ - 1, 122, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 36, "C");
+    set(GROUND_ - 1, 76, "C");
+    set(GROUND_ - 1, 90, "C");
+    set(GROUND_ - 1, 126, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [
+        {
+          x: 38 * TILE - 8,
+          y: GROUND_ * TILE,
+          w: TILE * 2,
+          h: 16,
+          x0: 38 * TILE,
+          x1: 47 * TILE - TILE * 2 + 8,
+          dir: 1,
+          speed: 1.55,
+        },
+        {
+          x: 110 * TILE - 8,
+          y: GROUND_ * TILE,
+          w: TILE * 2,
+          h: 16,
+          x0: 110 * TILE,
+          x1: 119 * TILE - TILE * 2 + 8,
+          dir: -1,
+          speed: 1.5,
+        },
+      ],
+      boulders: [
+        {
+          spawnX: 130 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.6,
+          w: 36, h: 36,
+          endX: 4 * TILE,
+          cooldown: 180,
+          initialDelay: 0,
+        },
+        {
+          spawnX: 64 * TILE,
+          y: (GROUND_ - 6) * TILE - 18,
+          vx: -2.6,
+          w: 32, h: 32,
+          endX: 54 * TILE,
+          cooldown: 220,
+          initialDelay: 100,
+        },
+      ],
+    };
+  }
+
+  function buildLevel50(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c = 28; c <= 58; c++) set(GROUND_ - 1, c, "X");
+    setRect(GROUND_ - 7, 24, GROUND_ - 7, 62, "G");
+    setRect(GROUND_ - 8, 24, GROUND_ - 8, 62, "D");
+    set(GROUND_ - 1, 26, "U");
+    set(GROUND_ - 6, 60, "U");
+    set(GROUND_ - 6, 36, "C");
+    set(GROUND_ - 6, 44, "C");
+    set(GROUND_ - 6, 52, "C");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 18, "C");
+    set(GROUND_ - 1, 68, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: [] };
+  }
+
+  function buildLevel51(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c = 22; c <= 70; c++) set(GROUND_ - 1, c, "X");
+    setRect(GROUND_ - 7, 18, GROUND_ - 7, 74, "G");
+    setRect(GROUND_ - 8, 18, GROUND_ - 8, 74, "D");
+    set(GROUND_ - 1, 20, "U");
+    set(GROUND_ - 6, 72, "U");
+    set(GROUND_ - 6, 28, "C");
+    set(GROUND_ - 6, 38, "C");
+    set(GROUND_ - 6, 48, "C");
+    set(GROUND_ - 6, 58, "C");
+    set(GROUND_ - 6, 66, "C");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 12, "C");
+    set(GROUND_ - 1, 80, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: [] };
+  }
+
+  function buildLevel52(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c = 16; c <= 38; c++) set(GROUND_ - 1, c, "X");
+    setRect(GROUND_ - 7, 14, GROUND_ - 7, 42, "G");
+    setRect(GROUND_ - 8, 14, GROUND_ - 8, 42, "D");
+    set(GROUND_ - 1, 14, "U");
+    set(GROUND_ - 6, 40, "U");
+    set(GROUND_ - 6, 22, "C");
+    set(GROUND_ - 6, 32, "C");
+    for (var c2 = 56; c2 <= 80; c2++) set(GROUND_ - 1, c2, "X");
+    setRect(GROUND_ - 7, 54, GROUND_ - 7, 84, "G");
+    setRect(GROUND_ - 8, 54, GROUND_ - 8, 84, "D");
+    set(GROUND_ - 1, 54, "U");
+    set(GROUND_ - 6, 82, "U");
+    set(GROUND_ - 6, 64, "C");
+    set(GROUND_ - 6, 74, "C");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 48, "C");
+    set(GROUND_ - 1, 90, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: [] };
+  }
+
+  function buildLevel53(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c = 22; c <= 78; c++) set(GROUND_ - 1, c, "X");
+    setRect(GROUND_ - 7, 18, GROUND_ - 7, 82, "G");
+    setRect(GROUND_ - 8, 18, GROUND_ - 8, 82, "D");
+    set(GROUND_ - 6, 36, "X");
+    set(GROUND_ - 6, 48, "X");
+    set(GROUND_ - 6, 64, "X");
+    set(GROUND_ - 1, 20, "U");
+    set(GROUND_ - 6, 80, "U");
+    set(GROUND_ - 6, 28, "C");
+    set(GROUND_ - 6, 42, "C");
+    set(GROUND_ - 6, 56, "C");
+    set(GROUND_ - 6, 72, "C");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 14, "C");
+    set(GROUND_ - 1, 88, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: [] };
+  }
+
+  function buildLevel54(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c = 18; c <= 36; c++) set(GROUND_ - 1, c, "X");
+    setRect(GROUND_ - 7, 16, GROUND_ - 7, 40, "G");
+    setRect(GROUND_ - 8, 16, GROUND_ - 8, 40, "D");
+    set(GROUND_ - 1, 16, "U");
+    set(GROUND_ - 6, 38, "U");
+    set(GROUND_ - 6, 24, "C");
+    set(GROUND_ - 6, 32, "C");
+    for (var r = GROUND_; r < ROWS; r++) for (var c2 = 50; c2 <= 52; c2++) set(r, c2, " ");
+    set(GROUND_ - 1, 60, "P");
+    set(GROUND_ - 1, 88, "P");
+    set(GROUND_ - 1, 70, "X");
+    set(GROUND_, 76, "B");
+    setRect(GROUND_ - 5, 96, GROUND_ - 5, 102, "G");
+    setRect(GROUND_ - 4, 96, GROUND_ - 4, 102, "D");
+    set(GROUND_ - 1, 92, "S");
+    setRect(GROUND_ - 2, 93, GROUND_ - 1, 93, "S");
+    setRect(GROUND_ - 3, 94, GROUND_ - 1, 94, "S");
+    setRect(GROUND_ - 4, 95, GROUND_ - 1, 95, "S");
+    setRect(GROUND_ - 5, 96, GROUND_ - 5, 96, "S");
+    set(GROUND_ - 6, 99, "C");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 44, "C");
+    set(GROUND_ - 1, 84, "C");
+    set(GROUND_ - 1, 110, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    var mv = [
+      {
+        axis: "y",
+        x: 56 * TILE,
+        y: GROUND_ * TILE,
+        w: TILE * 2,
+        h: 16,
+        y0: (GROUND_ - 5) * TILE,
+        y1: GROUND_ * TILE,
+        dir: -1,
+        speed: 1.4,
+      },
+    ];
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: mv,
+      boulders: [
+        {
+          spawnX: 110 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.0,
+          w: 36, h: 36,
+          cooldown: 280,
+          initialDelay: 200,
+        },
+      ],
+    };
+  }
+
+  function buildLevel55(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c1 = 16; c1 <= 26; c1++) set(GROUND_ - 1, c1, "X");
+    setRect(GROUND_ - 7, 14, GROUND_ - 7, 28, "G");
+    setRect(GROUND_ - 8, 14, GROUND_ - 8, 28, "D");
+    set(GROUND_ - 1, 14, "U");
+    set(GROUND_ - 6, 28, "U");
+    set(GROUND_ - 6, 21, "C");
+    for (var c2 = 44; c2 <= 54; c2++) set(GROUND_ - 1, c2, "X");
+    setRect(GROUND_ - 7, 42, GROUND_ - 7, 56, "G");
+    setRect(GROUND_ - 8, 42, GROUND_ - 8, 56, "D");
+    set(GROUND_ - 1, 42, "U");
+    set(GROUND_ - 6, 56, "U");
+    set(GROUND_ - 6, 49, "C");
+    for (var c3 = 70; c3 <= 78; c3++) set(GROUND_ - 1, c3, "X");
+    setRect(GROUND_ - 7, 68, GROUND_ - 7, 80, "G");
+    setRect(GROUND_ - 8, 68, GROUND_ - 8, 80, "D");
+    set(GROUND_ - 1, 68, "U");
+    set(GROUND_ - 6, 80, "U");
+    set(GROUND_ - 6, 74, "C");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 36, "C");
+    set(GROUND_ - 1, 62, "C");
+    set(GROUND_ - 1, 84, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: [] };
+  }
+
+  function buildLevel56(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 22; c <= 70; c++) set(r, c, " ");
+    setRect(GROUND_ - 7, 18, GROUND_ - 7, 74, "G");
+    setRect(GROUND_ - 8, 18, GROUND_ - 8, 74, "D");
+    set(GROUND_ - 1, 18, "U");
+    set(GROUND_ - 6, 72, "U");
+    set(GROUND_ - 6, 30, "C");
+    set(GROUND_ - 6, 42, "C");
+    set(GROUND_ - 6, 54, "C");
+    set(GROUND_ - 6, 64, "C");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 14, "C");
+    set(GROUND_ - 1, 80, "C");
+    set(GROUND_ - 1, 92, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: [] };
+  }
+
+  function buildLevel57(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c = 18; c <= 32; c++) set(GROUND_ - 1, c, "X");
+    setRect(GROUND_ - 7, 16, GROUND_ - 7, 36, "G");
+    setRect(GROUND_ - 8, 16, GROUND_ - 8, 36, "D");
+    set(GROUND_ - 6, 22, "X");
+    set(GROUND_ - 6, 28, "X");
+    set(GROUND_ - 1, 16, "U");
+    set(GROUND_ - 6, 34, "U");
+    set(GROUND_ - 6, 25, "C");
+    set(GROUND_, 42, "B");
+    set(GROUND_ - 1, 48, "X");
+    for (var c2 = 56; c2 <= 80; c2++) set(GROUND_ - 1, c2, "X");
+    setRect(GROUND_ - 7, 54, GROUND_ - 7, 84, "G");
+    setRect(GROUND_ - 8, 54, GROUND_ - 8, 84, "D");
+    set(GROUND_ - 6, 62, "X");
+    set(GROUND_ - 6, 72, "X");
+    set(GROUND_ - 1, 54, "U");
+    set(GROUND_ - 6, 82, "U");
+    set(GROUND_ - 6, 67, "C");
+    set(GROUND_ - 6, 78, "C");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 44, "C");
+    set(GROUND_ - 1, 90, "C");
+    set(GROUND_ - 1, 100, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: [] };
+  }
+
+  function buildLevel58(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    setRect(GROUND_ - 7, 16, GROUND_ - 7, 80, "G");
+    setRect(GROUND_ - 8, 16, GROUND_ - 8, 80, "D");
+    set(GROUND_ - 1, 18, "U");
+    set(GROUND_ - 6, 78, "U");
+    set(GROUND_ - 6, 28, "C");
+    set(GROUND_ - 6, 42, "C");
+    set(GROUND_ - 6, 56, "C");
+    set(GROUND_ - 6, 70, "C");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 88, "C");
+    set(GROUND_ - 1, 100, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 100 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.2,
+          w: 36, h: 36,
+          cooldown: 220,
+          initialDelay: 60,
+        },
+      ],
+    };
+  }
+
+  function buildLevel59(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c = 22; c <= 50; c++) set(GROUND_ - 1, c, "X");
+    setRect(GROUND_ - 7, 20, GROUND_ - 7, 54, "G");
+    setRect(GROUND_ - 8, 20, GROUND_ - 8, 54, "D");
+    set(GROUND_ - 1, 20, "U");
+    set(GROUND_ - 6, 52, "U");
+    set(GROUND_ - 6, 30, "C");
+    set(GROUND_ - 6, 42, "C");
+    set(GROUND_ - 1, 60, "P");
+    set(GROUND_ - 1, 96, "P");
+    for (var r = GROUND_; r < ROWS; r++) for (var c4 = 70; c4 <= 78; c4++) set(r, c4, " ");
+    set(GROUND_ - 1, 84, "X");
+    set(GROUND_, 90, "B");
+    set(GROUND_ - 1, 100, "S");
+    setRect(GROUND_ - 2, 101, GROUND_ - 1, 101, "S");
+    setRect(GROUND_ - 3, 102, GROUND_ - 1, 102, "S");
+    setRect(GROUND_ - 4, 103, GROUND_ - 1, 103, "S");
+    setRect(GROUND_ - 4, 104, GROUND_ - 4, 115, "G");
+    setRect(GROUND_ - 3, 104, GROUND_ - 3, 115, "D");
+    set(GROUND_ - 5, 110, "C");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 16, "C");
+    set(GROUND_ - 1, 64, "C");
+    set(GROUND_ - 1, 120, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    var mv = [
+      {
+        x: 70 * TILE - 8,
+        y: GROUND_ * TILE,
+        w: TILE * 2,
+        h: 16,
+        x0: 70 * TILE,
+        x1: 79 * TILE - TILE * 2 + 8,
+        dir: 1,
+        speed: 1.5,
+      },
+    ];
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: mv,
+      boulders: [
+        {
+          spawnX: 130 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.4,
+          w: 36, h: 36,
+          cooldown: 240,
+          initialDelay: 100,
+        },
+      ],
+    };
+  }
+
+  function buildLevel60(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c1 = 14; c1 <= 26; c1++) set(GROUND_ - 1, c1, "X");
+    setRect(GROUND_ - 7, 12, GROUND_ - 7, 30, "G");
+    setRect(GROUND_ - 8, 12, GROUND_ - 8, 30, "D");
+    set(GROUND_ - 1, 12, "U");
+    set(GROUND_ - 6, 28, "U");
+    set(GROUND_ - 6, 18, "C");
+    set(GROUND_ - 6, 24, "C");
+    set(GROUND_, 38, "B");
+    for (var c2 = 46; c2 <= 70; c2++) set(GROUND_ - 1, c2, "X");
+    setRect(GROUND_ - 7, 44, GROUND_ - 7, 74, "G");
+    setRect(GROUND_ - 8, 44, GROUND_ - 8, 74, "D");
+    set(GROUND_ - 1, 44, "U");
+    set(GROUND_ - 6, 72, "U");
+    set(GROUND_ - 6, 52, "C");
+    set(GROUND_ - 6, 60, "C");
+    set(GROUND_ - 6, 68, "C");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 80, "C");
+    set(GROUND_ - 1, 90, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: [] };
+  }
+
+  function buildLevel61(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c = 16; c <= 90; c++) set(GROUND_ - 1, c, "X");
+    setRect(GROUND_ - 7, 14, GROUND_ - 7, 94, "G");
+    setRect(GROUND_ - 8, 14, GROUND_ - 8, 94, "D");
+    set(GROUND_ - 6, 26, "X");
+    set(GROUND_ - 6, 36, "X");
+    set(GROUND_ - 6, 46, "X");
+    set(GROUND_ - 6, 56, "X");
+    set(GROUND_ - 6, 68, "X");
+    set(GROUND_ - 6, 80, "X");
+    set(GROUND_ - 1, 14, "U");
+    set(GROUND_ - 6, 92, "U");
+    set(GROUND_ - 6, 22, "C");
+    set(GROUND_ - 6, 32, "C");
+    set(GROUND_ - 6, 42, "C");
+    set(GROUND_ - 6, 52, "C");
+    set(GROUND_ - 6, 62, "C");
+    set(GROUND_ - 6, 76, "C");
+    set(GROUND_ - 6, 86, "C");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 100, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: [] };
+  }
+
+  function buildLevel62(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c = 14; c <= 30; c++) set(GROUND_ - 1, c, "X");
+    setRect(GROUND_ - 7, 12, GROUND_ - 7, 34, "G");
+    setRect(GROUND_ - 8, 12, GROUND_ - 8, 34, "D");
+    set(GROUND_ - 1, 12, "U");
+    set(GROUND_ - 6, 32, "U");
+    set(GROUND_ - 6, 20, "C");
+    set(GROUND_ - 6, 26, "C");
+    set(GROUND_, 42, "B");
+    set(GROUND_ - 1, 50, "X");
+    set(GROUND_, 58, "B");
+    for (var c2 = 66; c2 <= 96; c2++) set(GROUND_ - 1, c2, "X");
+    setRect(GROUND_ - 7, 64, GROUND_ - 7, 100, "G");
+    setRect(GROUND_ - 8, 64, GROUND_ - 8, 100, "D");
+    set(GROUND_ - 1, 64, "U");
+    set(GROUND_ - 6, 98, "U");
+    set(GROUND_ - 6, 72, "C");
+    set(GROUND_ - 6, 82, "C");
+    set(GROUND_ - 6, 92, "C");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 38, "C");
+    set(GROUND_ - 1, 108, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return { spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 }, movers: [] };
+  }
+
+  function buildLevel63(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c = 30; c <= 70; c++) set(GROUND_ - 1, c, "X");
+    setRect(GROUND_ - 7, 28, GROUND_ - 7, 74, "G");
+    setRect(GROUND_ - 8, 28, GROUND_ - 8, 74, "D");
+    set(GROUND_ - 1, 28, "U");
+    set(GROUND_ - 6, 72, "U");
+    set(GROUND_ - 6, 38, "C");
+    set(GROUND_ - 6, 50, "C");
+    set(GROUND_ - 6, 64, "C");
+    set(GROUND_ - 1, 84, "X");
+    set(GROUND_, 90, "B");
+    set(GROUND_ - 1, 100, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 16, "C");
+    set(GROUND_ - 1, 80, "C");
+    set(GROUND_ - 1, 110, "C");
+    set(GROUND_ - 1, 120, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 125 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.0,
+          w: 36, h: 36,
+          cooldown: 240,
+          initialDelay: 120,
+        },
+      ],
+    };
+  }
+
+  function buildLevel64(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 18; c <= 20; c++) set(r, c, " ");
+    for (var c2 = 28; c2 <= 60; c2++) set(GROUND_ - 1, c2, "X");
+    setRect(GROUND_ - 7, 26, GROUND_ - 7, 64, "G");
+    setRect(GROUND_ - 8, 26, GROUND_ - 8, 64, "D");
+    set(GROUND_ - 6, 38, "X");
+    set(GROUND_ - 6, 52, "X");
+    set(GROUND_ - 1, 26, "U");
+    set(GROUND_ - 6, 62, "U");
+    set(GROUND_ - 6, 32, "C");
+    set(GROUND_ - 6, 44, "C");
+    set(GROUND_ - 6, 58, "C");
+    set(GROUND_ - 1, 80, "P");
+    set(GROUND_ - 1, 110, "P");
+    set(GROUND_ - 1, 116, "S");
+    setRect(GROUND_ - 2, 117, GROUND_ - 1, 117, "S");
+    setRect(GROUND_ - 3, 118, GROUND_ - 1, 118, "S");
+    setRect(GROUND_ - 4, 119, GROUND_ - 1, 119, "S");
+    setRect(GROUND_ - 4, 120, GROUND_ - 4, 132, "G");
+    setRect(GROUND_ - 3, 120, GROUND_ - 3, 132, "D");
+    set(GROUND_ - 5, 126, "C");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 12, "C");
+    set(GROUND_ - 1, 70, "C");
+    set(GROUND_ - 1, 90, "C");
+    set(GROUND_ - 1, 100, "C");
+    set(GROUND_ - 1, 138, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    var mv = [
+      {
+        axis: "y",
+        x: 90 * TILE,
+        y: GROUND_ * TILE,
+        w: TILE * 2,
+        h: 16,
+        y0: (GROUND_ - 4) * TILE,
+        y1: GROUND_ * TILE,
+        dir: -1,
+        speed: 1.4,
+      },
+    ];
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: mv,
+      boulders: [
+        {
+          spawnX: 145 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.4,
+          w: 36, h: 36,
+          cooldown: 220,
+          initialDelay: 80,
+        },
+      ],
+    };
+  }
+
+  function buildLevel65(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    set(GROUND_ - 1, 22, "X");
+    set(GROUND_, 32, "B");
+    set(GROUND_ - 1, 48, "X");
+    set(GROUND_, 60, "B");
+    set(GROUND_ - 1, 76, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 16, "C");
+    set(GROUND_ - 1, 38, "C");
+    set(GROUND_ - 1, 54, "C");
+    set(GROUND_ - 1, 70, "C");
+    set(GROUND_ - 1, 86, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      missiles: [
+        {
+          spawnX: 95 * TILE,
+          spawnY: (GROUND_ - 5) * TILE,
+          speed: 2.4,
+          accel: 0.10,
+          cooldown: 360,
+          initialDelay: 180,
+        },
+      ],
+    };
+  }
+
+  function buildLevel66(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    setRect(GROUND_ - 3, 30, GROUND_ - 1, 30, "S");
+    setRect(GROUND_ - 3, 56, GROUND_ - 1, 56, "S");
+    setRect(GROUND_ - 3, 82, GROUND_ - 1, 82, "S");
+    set(GROUND_ - 1, 18, "X");
+    set(GROUND_, 44, "B");
+    set(GROUND_ - 1, 70, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 24, "C");
+    set(GROUND_ - 1, 40, "C");
+    set(GROUND_ - 1, 64, "C");
+    set(GROUND_ - 1, 88, "C");
+    set(GROUND_ - 1, 96, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      missiles: [
+        {
+          spawnX: 105 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 2.6,
+          accel: 0.12,
+          cooldown: 320,
+          initialDelay: 120,
+        },
+      ],
+    };
+  }
+
+  function buildLevel67(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    setRect(GROUND_ - 3, 24, GROUND_ - 1, 24, "S");
+    setRect(GROUND_ - 3, 50, GROUND_ - 1, 50, "S");
+    setRect(GROUND_ - 3, 78, GROUND_ - 1, 78, "S");
+    setRect(GROUND_ - 3, 104, GROUND_ - 1, 104, "S");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 36; c <= 38; c++) set(r, c, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 90; c2 <= 92; c2++) set(r, c2, " ");
+    set(GROUND_ - 1, 14, "X");
+    set(GROUND_, 64, "B");
+    set(GROUND_ - 1, 110, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 30, "C");
+    set(GROUND_ - 1, 44, "C");
+    set(GROUND_ - 1, 56, "C");
+    set(GROUND_ - 1, 70, "C");
+    set(GROUND_ - 1, 84, "C");
+    set(GROUND_ - 1, 98, "C");
+    set(GROUND_ - 1, 116, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      missiles: [
+        {
+          spawnX: 115 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 2.5,
+          accel: 0.11,
+          cooldown: 280,
+          initialDelay: 90,
+        },
+        {
+          spawnX: 5 * TILE,
+          spawnY: (GROUND_ - 7) * TILE,
+          speed: 2.3,
+          accel: 0.09,
+          cooldown: 360,
+          initialDelay: 240,
+        },
+      ],
+    };
+  }
+
+  function buildLevel68(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c = 22; c <= 60; c++) set(GROUND_ - 1, c, "X");
+    setRect(GROUND_ - 7, 20, GROUND_ - 7, 64, "G");
+    setRect(GROUND_ - 8, 20, GROUND_ - 8, 64, "D");
+    set(GROUND_ - 1, 20, "U");
+    set(GROUND_ - 6, 62, "U");
+    set(GROUND_ - 6, 30, "C");
+    set(GROUND_ - 6, 42, "C");
+    set(GROUND_ - 6, 54, "C");
+    setRect(GROUND_ - 3, 80, GROUND_ - 1, 80, "S");
+    setRect(GROUND_ - 3, 100, GROUND_ - 1, 100, "S");
+    set(GROUND_ - 1, 90, "X");
+    set(GROUND_, 110, "B");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 14, "C");
+    set(GROUND_ - 1, 72, "C");
+    set(GROUND_ - 1, 86, "C");
+    set(GROUND_ - 1, 96, "C");
+    set(GROUND_ - 1, 116, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      missiles: [
+        {
+          spawnX: 120 * TILE,
+          spawnY: (GROUND_ - 5) * TILE,
+          speed: 2.7,
+          accel: 0.12,
+          cooldown: 280,
+          initialDelay: 200,
+        },
+      ],
+    };
+  }
+
+  function buildLevel69(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    setRect(GROUND_ - 3, 24, GROUND_ - 1, 24, "S");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 36; c <= 44; c++) set(r, c, " ");
+    setRect(GROUND_ - 3, 60, GROUND_ - 1, 60, "S");
+    set(GROUND_ - 1, 70, "P");
+    set(GROUND_ - 1, 110, "P");
+    for (var c2 = 80; c2 <= 100; c2++) set(GROUND_ - 1, c2, "X");
+    setRect(GROUND_ - 7, 78, GROUND_ - 7, 104, "G");
+    setRect(GROUND_ - 8, 78, GROUND_ - 8, 104, "D");
+    set(GROUND_ - 1, 78, "U");
+    set(GROUND_ - 6, 102, "U");
+    set(GROUND_ - 6, 86, "C");
+    set(GROUND_ - 6, 94, "C");
+    setRect(GROUND_ - 3, 120, GROUND_ - 1, 120, "S");
+    set(GROUND_ - 1, 130, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 14, "C");
+    set(GROUND_ - 1, 32, "C");
+    set(GROUND_ - 1, 52, "C");
+    set(GROUND_ - 1, 66, "C");
+    set(GROUND_ - 1, 116, "C");
+    set(GROUND_ - 1, 138, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    var mv = [
+      {
+        x: 36 * TILE - 8,
+        y: GROUND_ * TILE,
+        w: TILE * 2,
+        h: 16,
+        x0: 36 * TILE,
+        x1: 45 * TILE - TILE * 2 + 8,
+        dir: 1,
+        speed: 1.55,
+      },
+    ];
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: mv,
+      missiles: [
+        {
+          spawnX: 145 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 2.8,
+          accel: 0.13,
+          cooldown: 260,
+          initialDelay: 100,
+        },
+        {
+          spawnX: 8 * TILE,
+          spawnY: (GROUND_ - 7) * TILE,
+          speed: 2.5,
+          accel: 0.10,
+          cooldown: 320,
+          initialDelay: 280,
+        },
+      ],
+    };
+  }
+
+  function buildLevel70(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    setRect(GROUND_ - 3, 24, GROUND_ - 1, 24, "S");
+    setRect(GROUND_ - 3, 50, GROUND_ - 1, 50, "S");
+    setRect(GROUND_ - 3, 78, GROUND_ - 1, 78, "S");
+    set(GROUND_ - 1, 14, "X");
+    set(GROUND_, 38, "B");
+    set(GROUND_ - 1, 64, "X");
+    set(GROUND_, 90, "B");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 18, "C");
+    set(GROUND_ - 1, 32, "C");
+    set(GROUND_ - 1, 44, "C");
+    set(GROUND_ - 1, 58, "C");
+    set(GROUND_ - 1, 72, "C");
+    set(GROUND_ - 1, 86, "C");
+    set(GROUND_ - 1, 96, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      missiles: [
+        {
+          spawnX: 105 * TILE,
+          spawnY: (GROUND_ - 5) * TILE,
+          speed: 2.8, accel: 0.13,
+          cooldown: 240, initialDelay: 100,
+        },
+        {
+          spawnX: 105 * TILE,
+          spawnY: (GROUND_ - 8) * TILE,
+          speed: 2.6, accel: 0.11,
+          cooldown: 280, initialDelay: 220,
+        },
+      ],
+    };
+  }
+
+  function buildLevel71(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    setRect(GROUND_ - 3, 28, GROUND_ - 1, 28, "S");
+    setRect(GROUND_ - 3, 56, GROUND_ - 1, 56, "S");
+    setRect(GROUND_ - 3, 88, GROUND_ - 1, 88, "S");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 70; c <= 72; c++) set(r, c, " ");
+    set(GROUND_ - 1, 18, "X");
+    set(GROUND_, 42, "B");
+    set(GROUND_ - 1, 80, "X");
+    set(GROUND_, 100, "B");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 22, "C");
+    set(GROUND_ - 1, 36, "C");
+    set(GROUND_ - 1, 50, "C");
+    set(GROUND_ - 1, 64, "C");
+    set(GROUND_ - 1, 76, "C");
+    set(GROUND_ - 1, 94, "C");
+    set(GROUND_ - 1, 108, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      missiles: [
+        {
+          spawnX: 115 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 2.9, accel: 0.13,
+          cooldown: 240, initialDelay: 80,
+        },
+        {
+          spawnX: 5 * TILE,
+          spawnY: (GROUND_ - 7) * TILE,
+          speed: 2.7, accel: 0.12,
+          cooldown: 260, initialDelay: 200,
+        },
+      ],
+    };
+  }
+
+  function buildLevel72(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    setRect(GROUND_ - 3, 22, GROUND_ - 1, 22, "S");
+    setRect(GROUND_ - 3, 46, GROUND_ - 1, 46, "S");
+    setRect(GROUND_ - 3, 72, GROUND_ - 1, 72, "S");
+    setRect(GROUND_ - 3, 100, GROUND_ - 1, 100, "S");
+    for (var c = 32; c <= 38; c++) set(GROUND_ - 1, c, "X");
+    set(GROUND_ - 2, 33, "S");
+    set(GROUND_ - 2, 35, "S");
+    set(GROUND_ - 2, 37, "S");
+    for (var c2 = 84; c2 <= 90; c2++) set(GROUND_ - 1, c2, "X");
+    set(GROUND_ - 2, 85, "S");
+    set(GROUND_ - 2, 87, "S");
+    set(GROUND_ - 2, 89, "S");
+    set(GROUND_, 60, "B");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 16, "C");
+    set(GROUND_ - 1, 28, "C");
+    set(GROUND_ - 1, 42, "C");
+    set(GROUND_ - 1, 54, "C");
+    set(GROUND_ - 1, 68, "C");
+    set(GROUND_ - 1, 80, "C");
+    set(GROUND_ - 1, 96, "C");
+    set(GROUND_ - 1, 110, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      missiles: [
+        {
+          spawnX: 130 * TILE,
+          spawnY: (GROUND_ - 5) * TILE,
+          speed: 3.0, accel: 0.14,
+          cooldown: 220, initialDelay: 60,
+        },
+        {
+          spawnX: 130 * TILE,
+          spawnY: (GROUND_ - 9) * TILE,
+          speed: 2.7, accel: 0.12,
+          cooldown: 260, initialDelay: 180,
+        },
+        {
+          spawnX: 5 * TILE,
+          spawnY: (GROUND_ - 8) * TILE,
+          speed: 2.5, accel: 0.10,
+          cooldown: 320, initialDelay: 320,
+        },
+      ],
+    };
+  }
+
+  function buildLevel73(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c = 28; c <= 60; c++) set(GROUND_ - 1, c, "X");
+    setRect(GROUND_ - 7, 26, GROUND_ - 7, 64, "G");
+    setRect(GROUND_ - 8, 26, GROUND_ - 8, 64, "D");
+    set(GROUND_ - 1, 26, "U");
+    set(GROUND_ - 6, 62, "U");
+    set(GROUND_ - 6, 36, "C");
+    set(GROUND_ - 6, 48, "C");
+    set(GROUND_ - 6, 58, "C");
+    setRect(GROUND_ - 3, 76, GROUND_ - 1, 76, "S");
+    setRect(GROUND_ - 3, 100, GROUND_ - 1, 100, "S");
+    set(GROUND_ - 1, 90, "X");
+    set(GROUND_, 110, "B");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 14, "C");
+    set(GROUND_ - 1, 70, "C");
+    set(GROUND_ - 1, 82, "C");
+    set(GROUND_ - 1, 96, "C");
+    set(GROUND_ - 1, 116, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      missiles: [
+        {
+          spawnX: 125 * TILE,
+          spawnY: (GROUND_ - 5) * TILE,
+          speed: 3.0, accel: 0.14,
+          cooldown: 240, initialDelay: 100,
+        },
+        {
+          spawnX: 125 * TILE,
+          spawnY: (GROUND_ - 9) * TILE,
+          speed: 2.6, accel: 0.10,
+          cooldown: 320, initialDelay: 260,
+        },
+      ],
+    };
+  }
+
+  function buildLevel74(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 30; c <= 32; c++) set(r, c, " ");
+    setRect(GROUND_ - 3, 18, GROUND_ - 1, 18, "S");
+    setRect(GROUND_ - 3, 44, GROUND_ - 1, 44, "S");
+    set(GROUND_ - 1, 60, "P");
+    set(GROUND_ - 1, 100, "P");
+    for (var c2 = 70; c2 <= 90; c2++) set(GROUND_ - 1, c2, "X");
+    setRect(GROUND_ - 7, 68, GROUND_ - 7, 94, "G");
+    setRect(GROUND_ - 8, 68, GROUND_ - 8, 94, "D");
+    set(GROUND_ - 1, 68, "U");
+    set(GROUND_ - 6, 92, "U");
+    set(GROUND_ - 6, 78, "C");
+    set(GROUND_ - 6, 86, "C");
+    setRect(GROUND_ - 3, 110, GROUND_ - 1, 110, "S");
+    setRect(GROUND_ - 3, 130, GROUND_ - 1, 130, "S");
+    set(GROUND_ - 1, 122, "X");
+    set(GROUND_, 138, "B");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 14, "C");
+    set(GROUND_ - 1, 26, "C");
+    set(GROUND_ - 1, 50, "C");
+    set(GROUND_ - 1, 64, "C");
+    set(GROUND_ - 1, 104, "C");
+    set(GROUND_ - 1, 116, "C");
+    set(GROUND_ - 1, 144, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      missiles: [
+        {
+          spawnX: 155 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 3.0, accel: 0.13,
+          cooldown: 240, initialDelay: 120,
+        },
+        {
+          spawnX: 155 * TILE,
+          spawnY: (GROUND_ - 9) * TILE,
+          speed: 2.7, accel: 0.11,
+          cooldown: 280, initialDelay: 280,
+        },
+        {
+          spawnX: 5 * TILE,
+          spawnY: (GROUND_ - 8) * TILE,
+          speed: 2.6, accel: 0.10,
+          cooldown: 360, initialDelay: 420,
+        },
+      ],
+    };
+  }
+
+  function buildLevel75(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    setRect(GROUND_ - 3, 12, GROUND_ - 1, 12, "S");
+    setRect(GROUND_ - 3, 24, GROUND_ - 1, 24, "S");
+    set(GROUND_, 32, "B");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 44; c <= 46; c++) set(r, c, " ");
+    for (r = GROUND_; r < ROWS; r++) for (var c2 = 60; c2 <= 62; c2++) set(r, c2, " ");
+    setRect(GROUND_ - 3, 80, GROUND_ - 1, 80, "S");
+    setRect(GROUND_ - 3, 92, GROUND_ - 1, 92, "S");
+    setRect(GROUND_ - 3, 104, GROUND_ - 1, 104, "S");
+    setRect(GROUND_ - 3, 116, GROUND_ - 1, 116, "S");
+    set(GROUND_ - 1, 86, "X");
+    set(GROUND_ - 1, 98, "X");
+    set(GROUND_, 110, "B");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 4, 12, "C");
+    set(GROUND_ - 4, 24, "C");
+    set(GROUND_ - 1, 38, "C");
+    set(GROUND_ - 1, 52, "C");
+    set(GROUND_ - 1, 68, "C");
+    set(GROUND_ - 1, 76, "C");
+    set(GROUND_ - 1, 88, "C");
+    set(GROUND_ - 1, 100, "C");
+    set(GROUND_ - 1, 122, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 70 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.4,
+          w: 36, h: 36,
+          cooldown: 220,
+          initialDelay: 80,
+        },
+      ],
+      missiles: [
+        {
+          spawnX: 125 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 3.0, accel: 0.14,
+          cooldown: 230, initialDelay: 120,
+        },
+        {
+          spawnX: 125 * TILE,
+          spawnY: (GROUND_ - 9) * TILE,
+          speed: 2.7, accel: 0.11,
+          cooldown: 280, initialDelay: 260,
+        },
+      ],
+    };
+  }
+
+  function buildLevel76(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c = 12; c <= 19; c++) set(GROUND_ - 1, c, "X");
+    set(GROUND_ - 2, 13, "S");
+    set(GROUND_ - 2, 15, "S");
+    set(GROUND_ - 2, 17, "S");
+    set(GROUND_ - 2, 19, "S");
+    setRect(GROUND_ - 7, 26, GROUND_ - 7, 80, "G");
+    setRect(GROUND_ - 8, 26, GROUND_ - 8, 80, "D");
+    for (var c2 = 28; c2 <= 76; c2++) set(GROUND_ - 1, c2, "X");
+    set(GROUND_ - 1, 26, "U");
+    set(GROUND_ - 6, 78, "U");
+    set(GROUND_ - 6, 36, "C");
+    set(GROUND_ - 6, 48, "C");
+    set(GROUND_ - 6, 60, "C");
+    set(GROUND_ - 6, 72, "C");
+    setRect(GROUND_ - 3, 92, GROUND_ - 1, 92, "S");
+    setRect(GROUND_ - 3, 104, GROUND_ - 1, 104, "S");
+    setRect(GROUND_ - 3, 118, GROUND_ - 1, 118, "S");
+    setRect(GROUND_ - 3, 130, GROUND_ - 1, 130, "S");
+    set(GROUND_ - 1, 98, "X");
+    set(GROUND_ - 1, 112, "X");
+    set(GROUND_, 124, "B");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 84, "C");
+    set(GROUND_ - 1, 96, "C");
+    set(GROUND_ - 1, 108, "C");
+    set(GROUND_ - 1, 122, "C");
+    set(GROUND_ - 1, 134, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      missiles: [
+        {
+          spawnX: 80 * TILE,
+          spawnY: (GROUND_ - 4) * TILE,
+          speed: 2.6, accel: 0.10,
+          cooldown: 300, initialDelay: 200,
+        },
+        {
+          spawnX: 135 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 3.0, accel: 0.13,
+          cooldown: 230, initialDelay: 100,
+        },
+        {
+          spawnX: 135 * TILE,
+          spawnY: (GROUND_ - 9) * TILE,
+          speed: 2.7, accel: 0.11,
+          cooldown: 280, initialDelay: 280,
+        },
+      ],
+    };
+  }
+
+  function buildLevel77(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    addVineColumn(set, setRect, GROUND_, 16, 17, 22);
+    setRect(GROUND_ - 7, 22, GROUND_ - 7, 78, "G");
+    setRect(GROUND_ - 6, 22, GROUND_ - 6, 78, "D");
+    set(GROUND_ - 8, 30, "C");
+    set(GROUND_ - 8, 42, "C");
+    set(GROUND_ - 8, 54, "C");
+    set(GROUND_ - 8, 66, "C");
+    setRect(GROUND_ - 5, 82, GROUND_ - 5, 86, "F");
+    setRect(GROUND_ - 3, 90, GROUND_ - 3, 94, "F");
+    set(GROUND_ - 6, 84, "C");
+    set(GROUND_ - 4, 92, "C");
+    setRect(GROUND_ - 3, 102, GROUND_ - 1, 102, "S");
+    setRect(GROUND_ - 3, 114, GROUND_ - 1, 114, "S");
+    setRect(GROUND_ - 3, 124, GROUND_ - 1, 124, "S");
+    set(GROUND_ - 1, 108, "X");
+    set(GROUND_ - 1, 120, "X");
+    set(GROUND_, 100, "B");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 12, "C");
+    set(GROUND_ - 1, 98, "C");
+    set(GROUND_ - 1, 112, "C");
+    set(GROUND_ - 1, 126, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 74 * TILE,
+          y: (GROUND_ - 7) * TILE - 18,
+          vx: -3.0,
+          w: 36, h: 36,
+          cooldown: 220,
+          initialDelay: 80,
+        },
+        {
+          spawnX: 74 * TILE,
+          y: (GROUND_ - 7) * TILE - 18,
+          vx: -2.6,
+          w: 32, h: 32,
+          cooldown: 280,
+          initialDelay: 240,
+        },
+      ],
+      missiles: [
+        {
+          spawnX: 128 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 3.0, accel: 0.13,
+          cooldown: 240, initialDelay: 100,
+        },
+      ],
+    };
+  }
+
+  function buildLevel78(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    setRect(GROUND_ - 3, 10, GROUND_ - 1, 10, "S");
+    setRect(GROUND_ - 3, 22, GROUND_ - 1, 22, "S");
+    set(GROUND_, 16, "B");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 32; c <= 50; c++) set(r, c, " ");
+    set(GROUND_ - 1, 28, "P");
+    set(GROUND_ - 1, 56, "P");
+    setRect(GROUND_ - 7, 64, GROUND_ - 7, 110, "G");
+    setRect(GROUND_ - 8, 64, GROUND_ - 8, 110, "D");
+    for (var c3 = 66; c3 <= 106; c3++) set(GROUND_ - 1, c3, "X");
+    set(GROUND_ - 1, 64, "U");
+    set(GROUND_ - 6, 108, "U");
+    set(GROUND_ - 6, 74, "C");
+    set(GROUND_ - 6, 84, "C");
+    set(GROUND_ - 6, 94, "C");
+    set(GROUND_ - 6, 104, "C");
+    setRect(GROUND_ - 3, 118, GROUND_ - 1, 118, "S");
+    setRect(GROUND_ - 3, 130, GROUND_ - 1, 130, "S");
+    setRect(GROUND_ - 3, 140, GROUND_ - 1, 140, "S");
+    set(GROUND_ - 1, 124, "X");
+    set(GROUND_ - 1, 136, "X");
+    set(GROUND_, 144, "B");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 4, 10, "C");
+    set(GROUND_ - 4, 22, "C");
+    set(GROUND_ - 1, 60, "C");
+    set(GROUND_ - 1, 114, "C");
+    set(GROUND_ - 1, 122, "C");
+    set(GROUND_ - 1, 134, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      missiles: [
+        {
+          spawnX: 110 * TILE,
+          spawnY: (GROUND_ - 4) * TILE,
+          speed: 2.7, accel: 0.11,
+          cooldown: 300, initialDelay: 220,
+        },
+        {
+          spawnX: 145 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 3.0, accel: 0.14,
+          cooldown: 230, initialDelay: 80,
+        },
+        {
+          spawnX: 145 * TILE,
+          spawnY: (GROUND_ - 9) * TILE,
+          speed: 2.7, accel: 0.11,
+          cooldown: 280, initialDelay: 260,
+        },
+      ],
+    };
+  }
+
+  function buildLevel79(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    setRect(GROUND_ - 3, 10, GROUND_ - 1, 10, "S");
+    setRect(GROUND_ - 3, 22, GROUND_ - 1, 22, "S");
+    set(GROUND_, 16, "B");
+    addVineColumn(set, setRect, GROUND_, 28, 29, 34);
+    setRect(GROUND_ - 4, 38, GROUND_ - 4, 42, "F");
+    setRect(GROUND_ - 5, 46, GROUND_ - 5, 50, "F");
+    set(GROUND_ - 5, 40, "C");
+    set(GROUND_ - 6, 48, "C");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 56; c <= 58; c++) set(r, c, " ");
+    set(GROUND_ - 1, 64, "X");
+    set(GROUND_ - 1, 68, "X");
+    set(GROUND_ - 1, 72, "X");
+    set(GROUND_, 76, "B");
+    setRect(GROUND_ - 7, 82, GROUND_ - 7, 124, "G");
+    setRect(GROUND_ - 8, 82, GROUND_ - 8, 124, "D");
+    for (var c2 = 84; c2 <= 122; c2++) set(GROUND_ - 1, c2, "X");
+    set(GROUND_ - 1, 82, "U");
+    set(GROUND_ - 6, 124, "U");
+    set(GROUND_ - 6, 92, "C");
+    set(GROUND_ - 6, 102, "C");
+    set(GROUND_ - 6, 112, "C");
+    set(GROUND_ - 6, 120, "C");
+    for (var r2 = GROUND_; r2 < ROWS; r2++) for (var c3 = 134; c3 <= 142; c3++) set(r2, c3, " ");
+    set(GROUND_ - 1, 132, "P");
+    set(GROUND_ - 1, 144, "P");
+    setRect(GROUND_ - 3, 158, GROUND_ - 1, 158, "S");
+    setRect(GROUND_ - 3, 168, GROUND_ - 1, 168, "S");
+    set(GROUND_ - 1, 162, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 4, 10, "C");
+    set(GROUND_ - 4, 22, "C");
+    set(GROUND_ - 8, 32, "C");
+    set(GROUND_ - 1, 54, "C");
+    set(GROUND_ - 1, 80, "C");
+    set(GROUND_ - 1, 128, "C");
+    set(GROUND_ - 1, 154, "C");
+    set(GROUND_ - 1, 174, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 78 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.2,
+          w: 36, h: 36,
+          cooldown: 240,
+          initialDelay: 100,
+        },
+      ],
+      missiles: [
+        {
+          spawnX: 175 * TILE,
+          spawnY: (GROUND_ - 5) * TILE,
+          speed: 3.0, accel: 0.14,
+          cooldown: 230, initialDelay: 100,
+        },
+        {
+          spawnX: 175 * TILE,
+          spawnY: (GROUND_ - 9) * TILE,
+          speed: 2.7, accel: 0.11,
+          cooldown: 280, initialDelay: 260,
+        },
+        {
+          spawnX: 5 * TILE,
+          spawnY: (GROUND_ - 8) * TILE,
+          speed: 2.5, accel: 0.10,
+          cooldown: 360, initialDelay: 420,
+        },
+      ],
+    };
+  }
+
+  function buildLevel80(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 22; c <= 24; c++) set(r, c, " ");
+    for (var r2 = GROUND_; r2 < ROWS; r2++) for (var c2 = 44; c2 <= 46; c2++) set(r2, c2, " ");
+    set(GROUND_ - 1, 32, "X");
+    set(GROUND_, 56, "B");
+    setRect(GROUND_ - 3, 64, GROUND_ - 1, 64, "S");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 16, "C");
+    set(GROUND_ - 1, 28, "C");
+    set(GROUND_ - 1, 38, "C");
+    set(GROUND_ - 1, 50, "C");
+    set(GROUND_ - 4, 64, "C");
+    set(GROUND_ - 1, 70, "C");
+    set(GROUND_ - 1, 76, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      reversers: { minDelay: 240, maxDelay: 420, initialDelay: 150 },
+    };
+  }
+
+  function buildLevel81(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 18; c <= 21; c++) set(r, c, " ");
+    for (var r2 = GROUND_; r2 < ROWS; r2++) for (var c2 = 36; c2 <= 39; c2++) set(r2, c2, " ");
+    for (var r3 = GROUND_; r3 < ROWS; r3++) for (var c3 = 56; c3 <= 59; c3++) set(r3, c3, " ");
+    setRect(GROUND_ - 3, 28, GROUND_ - 1, 28, "S");
+    set(GROUND_ - 1, 46, "X");
+    setRect(GROUND_ - 3, 66, GROUND_ - 1, 66, "S");
+    set(GROUND_, 74, "B");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 14, "C");
+    set(GROUND_ - 4, 28, "C");
+    set(GROUND_ - 1, 32, "C");
+    set(GROUND_ - 1, 42, "C");
+    set(GROUND_ - 1, 50, "C");
+    set(GROUND_ - 1, 62, "C");
+    set(GROUND_ - 4, 66, "C");
+    set(GROUND_ - 1, 80, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      reversers: { minDelay: 200, maxDelay: 360, initialDelay: 120 },
+    };
+  }
+
+  function buildLevel82(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    setRect(GROUND_ - 3, 14, GROUND_ - 1, 14, "S");
+    setRect(GROUND_ - 3, 26, GROUND_ - 1, 26, "S");
+    set(GROUND_ - 1, 22, "X");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 36; c <= 39; c++) set(r, c, " ");
+    setRect(GROUND_ - 3, 48, GROUND_ - 1, 48, "S");
+    set(GROUND_, 56, "B");
+    setRect(GROUND_ - 3, 64, GROUND_ - 1, 64, "S");
+    set(GROUND_ - 1, 72, "X");
+    setRect(GROUND_ - 3, 80, GROUND_ - 1, 80, "S");
+    set(GROUND_, 88, "B");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 4, 14, "C");
+    set(GROUND_ - 1, 18, "C");
+    set(GROUND_ - 4, 26, "C");
+    set(GROUND_ - 1, 32, "C");
+    set(GROUND_ - 1, 44, "C");
+    set(GROUND_ - 4, 48, "C");
+    set(GROUND_ - 4, 64, "C");
+    set(GROUND_ - 4, 80, "C");
+    set(GROUND_ - 1, 84, "C");
+    set(GROUND_ - 1, 92, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      reversers: { minDelay: 180, maxDelay: 320, initialDelay: 100 },
+    };
+  }
+
+  function buildLevel83(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 24; c <= 26; c++) set(r, c, " ");
+    for (var r2 = GROUND_; r2 < ROWS; r2++) for (var c2 = 50; c2 <= 53; c2++) set(r2, c2, " ");
+    for (var r3 = GROUND_; r3 < ROWS; r3++) for (var c3 = 78; c3 <= 80; c3++) set(r3, c3, " ");
+    setRect(GROUND_ - 3, 14, GROUND_ - 1, 14, "S");
+    set(GROUND_ - 1, 32, "X");
+    setRect(GROUND_ - 3, 38, GROUND_ - 1, 38, "S");
+    set(GROUND_, 44, "B");
+    setRect(GROUND_ - 3, 60, GROUND_ - 1, 60, "S");
+    set(GROUND_ - 1, 70, "X");
+    setRect(GROUND_ - 3, 86, GROUND_ - 1, 86, "S");
+    set(GROUND_, 96, "B");
+    setRect(GROUND_ - 3, 102, GROUND_ - 1, 102, "S");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 4, 14, "C");
+    set(GROUND_ - 1, 20, "C");
+    set(GROUND_ - 1, 30, "C");
+    set(GROUND_ - 4, 38, "C");
+    set(GROUND_ - 1, 48, "C");
+    set(GROUND_ - 4, 60, "C");
+    set(GROUND_ - 1, 66, "C");
+    set(GROUND_ - 1, 74, "C");
+    set(GROUND_ - 4, 86, "C");
+    set(GROUND_ - 1, 92, "C");
+    set(GROUND_ - 4, 102, "C");
+    set(GROUND_ - 1, 106, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      reversers: { minDelay: 180, maxDelay: 320, initialDelay: 100 },
+    };
+  }
+
+  function buildLevel84(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    setRect(GROUND_ - 3, 16, GROUND_ - 1, 16, "S");
+    set(GROUND_ - 1, 24, "X");
+    setRect(GROUND_ - 3, 32, GROUND_ - 1, 32, "S");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 42; c <= 45; c++) set(r, c, " ");
+    setRect(GROUND_ - 3, 54, GROUND_ - 1, 54, "S");
+    set(GROUND_, 62, "B");
+    setRect(GROUND_ - 3, 70, GROUND_ - 1, 70, "S");
+    set(GROUND_ - 1, 80, "X");
+    setRect(GROUND_ - 3, 88, GROUND_ - 1, 88, "S");
+    setRect(GROUND_ - 3, 100, GROUND_ - 1, 100, "S");
+    setRect(GROUND_ - 3, 112, GROUND_ - 1, 112, "S");
+    set(GROUND_, 120, "B");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 4, 16, "C");
+    set(GROUND_ - 1, 20, "C");
+    set(GROUND_ - 4, 32, "C");
+    set(GROUND_ - 1, 38, "C");
+    set(GROUND_ - 1, 50, "C");
+    set(GROUND_ - 4, 54, "C");
+    set(GROUND_ - 4, 70, "C");
+    set(GROUND_ - 1, 76, "C");
+    set(GROUND_ - 4, 88, "C");
+    set(GROUND_ - 1, 96, "C");
+    set(GROUND_ - 4, 100, "C");
+    set(GROUND_ - 4, 112, "C");
+    set(GROUND_ - 1, 124, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      missiles: [
+        {
+          spawnX: 125 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 2.7, accel: 0.11,
+          cooldown: 280, initialDelay: 220,
+        },
+      ],
+      reversers: { minDelay: 180, maxDelay: 300, initialDelay: 100 },
+    };
+  }
+
+  function buildLevel85(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    addVineColumn(set, setRect, GROUND_, 18, 19, 24);
+    addVineColumn(set, setRect, GROUND_, 40, 41, 46);
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 56; c <= 58; c++) set(r, c, " ");
+    set(GROUND_ - 1, 64, "X");
+    setRect(GROUND_ - 3, 72, GROUND_ - 1, 72, "S");
+    set(GROUND_, 80, "B");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 8, 22, "C");
+    set(GROUND_ - 1, 32, "C");
+    set(GROUND_ - 8, 44, "C");
+    set(GROUND_ - 1, 52, "C");
+    set(GROUND_ - 1, 62, "C");
+    set(GROUND_ - 4, 72, "C");
+    set(GROUND_ - 1, 86, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 80 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -2.8,
+          w: 36, h: 36,
+          cooldown: 280,
+          initialDelay: 160,
+        },
+      ],
+      missiles: [
+        {
+          spawnX: 85 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 2.6, accel: 0.10,
+          cooldown: 320, initialDelay: 200,
+        },
+      ],
+      reversers: { minDelay: 220, maxDelay: 360, initialDelay: 150 },
+    };
+  }
+
+  function buildLevel86(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    addVineColumn(set, setRect, GROUND_, 22, 23, 30);
+    addVineColumn(set, setRect, GROUND_, 56, 57, 64);
+    set(GROUND_ - 1, 36, "X");
+    set(GROUND_ - 1, 44, "X");
+    setRect(GROUND_ - 3, 72, GROUND_ - 1, 72, "S");
+    set(GROUND_, 82, "B");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 14, "C");
+    set(GROUND_ - 8, 26, "C");
+    set(GROUND_ - 1, 40, "C");
+    set(GROUND_ - 1, 50, "C");
+    set(GROUND_ - 8, 60, "C");
+    set(GROUND_ - 4, 72, "C");
+    set(GROUND_ - 1, 88, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 90 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.0,
+          w: 36, h: 36,
+          cooldown: 260,
+          initialDelay: 120,
+        },
+        {
+          spawnX: 90 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -2.4,
+          w: 32, h: 32,
+          cooldown: 320,
+          initialDelay: 320,
+        },
+      ],
+      missiles: [
+        {
+          spawnX: 95 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 2.7, accel: 0.11,
+          cooldown: 280, initialDelay: 220,
+        },
+      ],
+      reversers: { minDelay: 200, maxDelay: 340, initialDelay: 140 },
+    };
+  }
+
+  function buildLevel87(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    addVineColumn(set, setRect, GROUND_, 16, 17, 22);
+    addVineColumn(set, setRect, GROUND_, 38, 39, 44);
+    addVineColumn(set, setRect, GROUND_, 62, 63, 68);
+    setRect(GROUND_ - 7, 22, GROUND_ - 7, 39, "G");
+    setRect(GROUND_ - 6, 22, GROUND_ - 6, 39, "D");
+    setRect(GROUND_ - 7, 44, GROUND_ - 7, 63, "G");
+    setRect(GROUND_ - 6, 44, GROUND_ - 6, 63, "D");
+    set(GROUND_ - 1, 30, "X");
+    set(GROUND_, 50, "B");
+    set(GROUND_ - 1, 76, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 8, 28, "C");
+    set(GROUND_ - 1, 36, "C");
+    set(GROUND_ - 8, 50, "C");
+    set(GROUND_ - 1, 56, "C");
+    set(GROUND_ - 8, 66, "C");
+    set(GROUND_ - 1, 72, "C");
+    set(GROUND_ - 1, 82, "C");
+    set(GROUND_ - 1, 90, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 92 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -2.8,
+          w: 36, h: 36,
+          cooldown: 280,
+          initialDelay: 180,
+        },
+      ],
+      missiles: [
+        {
+          spawnX: 95 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 2.7, accel: 0.11,
+          cooldown: 280, initialDelay: 200,
+        },
+      ],
+      reversers: { minDelay: 200, maxDelay: 320, initialDelay: 120 },
+    };
+  }
+
+  function buildLevel88(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    addVineColumn(set, setRect, GROUND_, 14, 15, 22);
+    addVineColumn(set, setRect, GROUND_, 36, 37, 46);
+    addVineColumn(set, setRect, GROUND_, 60, 61, 68);
+    addVineColumn(set, setRect, GROUND_, 84, 85, 92);
+    set(GROUND_ - 1, 28, "X");
+    set(GROUND_, 32, "B");
+    set(GROUND_ - 1, 52, "X");
+    set(GROUND_ - 1, 76, "X");
+    setRect(GROUND_ - 3, 100, GROUND_ - 1, 100, "S");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 8, 18, "C");
+    set(GROUND_ - 8, 40, "C");
+    set(GROUND_ - 1, 48, "C");
+    set(GROUND_ - 8, 64, "C");
+    set(GROUND_ - 1, 72, "C");
+    set(GROUND_ - 8, 88, "C");
+    set(GROUND_ - 1, 96, "C");
+    set(GROUND_ - 4, 100, "C");
+    set(GROUND_ - 1, 106, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 108 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.2,
+          w: 36, h: 36,
+          cooldown: 260,
+          initialDelay: 120,
+        },
+      ],
+      missiles: [
+        {
+          spawnX: 108 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 2.8, accel: 0.12,
+          cooldown: 260, initialDelay: 180,
+        },
+        {
+          spawnX: 108 * TILE,
+          spawnY: (GROUND_ - 9) * TILE,
+          speed: 2.6, accel: 0.10,
+          cooldown: 320, initialDelay: 320,
+        },
+      ],
+      reversers: { minDelay: 180, maxDelay: 280, initialDelay: 100 },
+    };
+  }
+
+  function buildLevel89(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    addVineColumn(set, setRect, GROUND_, 16, 17, 24);
+    addVineColumn(set, setRect, GROUND_, 44, 45, 52);
+    addVineColumn(set, setRect, GROUND_, 76, 77, 84);
+    set(GROUND_ - 1, 30, "X");
+    set(GROUND_, 38, "B");
+    set(GROUND_ - 1, 60, "X");
+    setRect(GROUND_ - 3, 96, GROUND_ - 1, 96, "S");
+    set(GROUND_, 108, "B");
+    setRect(GROUND_ - 3, 116, GROUND_ - 1, 116, "S");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 8, 20, "C");
+    set(GROUND_ - 1, 34, "C");
+    set(GROUND_ - 8, 48, "C");
+    set(GROUND_ - 1, 56, "C");
+    set(GROUND_ - 1, 70, "C");
+    set(GROUND_ - 8, 80, "C");
+    set(GROUND_ - 1, 90, "C");
+    set(GROUND_ - 4, 96, "C");
+    set(GROUND_ - 4, 116, "C");
+    set(GROUND_ - 1, 124, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 130 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.2,
+          w: 36, h: 36,
+          cooldown: 260,
+          initialDelay: 140,
+        },
+        {
+          spawnX: 130 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -2.6,
+          w: 32, h: 32,
+          cooldown: 320,
+          initialDelay: 360,
+        },
+      ],
+      missiles: [
+        {
+          spawnX: 128 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 2.8, accel: 0.12,
+          cooldown: 260, initialDelay: 160,
+        },
+        {
+          spawnX: 128 * TILE,
+          spawnY: (GROUND_ - 9) * TILE,
+          speed: 2.6, accel: 0.10,
+          cooldown: 320, initialDelay: 300,
+        },
+      ],
+      reversers: { minDelay: 160, maxDelay: 280, initialDelay: 110 },
+    };
+  }
+
+  function buildLevel90(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    setRect(GROUND_ - 3, 16, GROUND_ - 3, 20, "F");
+    setRect(GROUND_ - 3, 26, GROUND_ - 3, 30, "F");
+    setRect(GROUND_ - 3, 36, GROUND_ - 3, 40, "F");
+    set(GROUND_ - 1, 56, "X");
+    setRect(GROUND_ - 3, 64, GROUND_ - 1, 64, "S");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 4, 18, "C");
+    set(GROUND_ - 4, 28, "C");
+    set(GROUND_ - 4, 38, "C");
+    set(GROUND_ - 1, 52, "C");
+    set(GROUND_ - 4, 64, "C");
+    set(GROUND_ - 1, 76, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [
+        {
+          axis: "y",
+          x: 70 * TILE,
+          y: GROUND_ * TILE,
+          w: TILE * 2,
+          h: 16,
+          y0: (GROUND_ - 4) * TILE,
+          y1: GROUND_ * TILE,
+          dir: -1,
+          speed: 1.4,
+        },
+      ],
+      boulders: [
+        {
+          spawnX: 80 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -2.6,
+          w: 36, h: 36,
+          cooldown: 320,
+          initialDelay: 200,
+        },
+      ],
+      missiles: [
+        {
+          spawnX: 82 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 2.6, accel: 0.10,
+          cooldown: 320, initialDelay: 200,
+        },
+      ],
+    };
+  }
+
+  function buildLevel91(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    setRect(GROUND_ - 3, 14, GROUND_ - 1, 14, "S");
+    set(GROUND_ - 1, 24, "X");
+    setRect(GROUND_ - 3, 34, GROUND_ - 1, 34, "S");
+    set(GROUND_, 46, "B");
+    setRect(GROUND_ - 3, 56, GROUND_ - 1, 56, "S");
+    setRect(GROUND_ - 3, 76, GROUND_ - 1, 76, "S");
+    set(GROUND_ - 1, 86, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 4, 14, "C");
+    set(GROUND_ - 1, 20, "C");
+    set(GROUND_ - 4, 34, "C");
+    set(GROUND_ - 1, 42, "C");
+    set(GROUND_ - 4, 56, "C");
+    set(GROUND_ - 1, 66, "C");
+    set(GROUND_ - 4, 76, "C");
+    set(GROUND_ - 1, 92, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 95 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.0,
+          w: 36, h: 36,
+          cooldown: 280,
+          initialDelay: 100,
+        },
+      ],
+      missiles: [
+        {
+          spawnX: 95 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 2.7, accel: 0.11,
+          cooldown: 260, initialDelay: 140,
+        },
+        {
+          spawnX: 95 * TILE,
+          spawnY: (GROUND_ - 9) * TILE,
+          speed: 2.6, accel: 0.10,
+          cooldown: 320, initialDelay: 280,
+        },
+      ],
+    };
+  }
+
+  function buildLevel92(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c = 28; c <= 70; c++) set(GROUND_ - 1, c, "X");
+    setRect(GROUND_ - 7, 26, GROUND_ - 7, 72, "G");
+    setRect(GROUND_ - 8, 26, GROUND_ - 8, 72, "D");
+    set(GROUND_ - 1, 26, "U");
+    set(GROUND_ - 6, 70, "U");
+    set(GROUND_ - 6, 36, "C");
+    set(GROUND_ - 6, 48, "C");
+    set(GROUND_ - 6, 60, "C");
+    setRect(GROUND_ - 3, 80, GROUND_ - 1, 80, "S");
+    set(GROUND_ - 1, 90, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 16, "C");
+    set(GROUND_ - 1, 78, "C");
+    set(GROUND_ - 4, 80, "C");
+    set(GROUND_ - 1, 96, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 100 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.0,
+          w: 36, h: 36,
+          cooldown: 280,
+          initialDelay: 240,
+        },
+      ],
+      missiles: [
+        {
+          spawnX: 100 * TILE,
+          spawnY: (GROUND_ - 5) * TILE,
+          speed: 2.7, accel: 0.11,
+          cooldown: 280, initialDelay: 160,
+        },
+        {
+          spawnX: 100 * TILE,
+          spawnY: (GROUND_ - 9) * TILE,
+          speed: 2.6, accel: 0.10,
+          cooldown: 320, initialDelay: 320,
+        },
+      ],
+    };
+  }
+
+  function buildLevel93(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    setRect(GROUND_ - 3, 14, GROUND_ - 3, 18, "F");
+    setRect(GROUND_ - 4, 22, GROUND_ - 4, 26, "F");
+    setRect(GROUND_ - 5, 30, GROUND_ - 5, 34, "F");
+    setRect(GROUND_ - 6, 38, GROUND_ - 6, 42, "F");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 4, 16, "C");
+    set(GROUND_ - 5, 24, "C");
+    set(GROUND_ - 6, 32, "C");
+    set(GROUND_ - 7, 40, "C");
+    set(GROUND_ - 1, 64, "C");
+    set(GROUND_ - 1, 74, "C");
+    set(GROUND_ - 1, 86, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 95 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -2.8,
+          w: 36, h: 36,
+          cooldown: 300,
+          initialDelay: 220,
+        },
+      ],
+      missiles: [
+        {
+          spawnX: 95 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 2.7, accel: 0.11,
+          cooldown: 280, initialDelay: 140,
+        },
+        {
+          spawnX: 95 * TILE,
+          spawnY: (GROUND_ - 9) * TILE,
+          speed: 2.6, accel: 0.10,
+          cooldown: 320, initialDelay: 280,
+        },
+      ],
+    };
+  }
+
+  function buildLevel94(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    setRect(GROUND_ - 3, 14, GROUND_ - 1, 14, "S");
+    set(GROUND_ - 1, 22, "X");
+    setRect(GROUND_ - 3, 30, GROUND_ - 1, 30, "S");
+    setRect(GROUND_ - 3, 46, GROUND_ - 1, 46, "S");
+    set(GROUND_, 56, "B");
+    setRect(GROUND_ - 3, 64, GROUND_ - 1, 64, "S");
+    set(GROUND_ - 1, 74, "X");
+    setRect(GROUND_ - 3, 82, GROUND_ - 1, 82, "S");
+    setRect(GROUND_ - 3, 96, GROUND_ - 1, 96, "S");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 4, 14, "C");
+    set(GROUND_ - 4, 30, "C");
+    set(GROUND_ - 1, 38, "C");
+    set(GROUND_ - 4, 46, "C");
+    set(GROUND_ - 4, 64, "C");
+    set(GROUND_ - 4, 82, "C");
+    set(GROUND_ - 1, 90, "C");
+    set(GROUND_ - 4, 96, "C");
+    set(GROUND_ - 1, 106, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 110 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.0,
+          w: 36, h: 36,
+          cooldown: 280,
+          initialDelay: 180,
+        },
+      ],
+      missiles: [
+        {
+          spawnX: 110 * TILE,
+          spawnY: (GROUND_ - 5) * TILE,
+          speed: 2.8, accel: 0.12,
+          cooldown: 240, initialDelay: 100,
+        },
+        {
+          spawnX: 110 * TILE,
+          spawnY: (GROUND_ - 9) * TILE,
+          speed: 2.6, accel: 0.10,
+          cooldown: 300, initialDelay: 260,
+        },
+        {
+          spawnX: 5 * TILE,
+          spawnY: (GROUND_ - 8) * TILE,
+          speed: 2.4, accel: 0.09,
+          cooldown: 360, initialDelay: 380,
+        },
+      ],
+      reversers: { minDelay: 220, maxDelay: 360, initialDelay: 160 },
+    };
+  }
+
+  function buildLevel95(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 38; c <= 40; c++) set(r, c, " ");
+    for (var r2 = GROUND_; r2 < ROWS; r2++) for (var c2 = 64; c2 <= 66; c2++) set(r2, c2, " ");
+    setRect(GROUND_ - 3, 14, GROUND_ - 1, 14, "S");
+    set(GROUND_ - 1, 22, "X");
+    setRect(GROUND_ - 3, 50, GROUND_ - 1, 50, "S");
+    set(GROUND_, 58, "B");
+    setRect(GROUND_ - 3, 78, GROUND_ - 1, 78, "S");
+    set(GROUND_ - 1, 88, "X");
+    setRect(GROUND_ - 3, 96, GROUND_ - 1, 96, "S");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 4, 14, "C");
+    set(GROUND_ - 1, 30, "C");
+    set(GROUND_ - 4, 50, "C");
+    set(GROUND_ - 1, 72, "C");
+    set(GROUND_ - 4, 78, "C");
+    set(GROUND_ - 4, 96, "C");
+    set(GROUND_ - 1, 108, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 110 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.4,
+          w: 36, h: 36,
+          cooldown: 220,
+          initialDelay: 100,
+        },
+        {
+          spawnX: 110 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -2.6,
+          w: 32, h: 32,
+          cooldown: 320,
+          initialDelay: 320,
+        },
+      ],
+      missiles: [
+        {
+          spawnX: 110 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 2.8, accel: 0.12,
+          cooldown: 260, initialDelay: 160,
+        },
+      ],
+      reversers: { minDelay: 180, maxDelay: 300, initialDelay: 120 },
+    };
+  }
+
+  function buildLevel96(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var c = 28; c <= 64; c++) set(GROUND_ - 1, c, "X");
+    setRect(GROUND_ - 7, 26, GROUND_ - 7, 66, "G");
+    setRect(GROUND_ - 8, 26, GROUND_ - 8, 66, "D");
+    set(GROUND_ - 1, 26, "U");
+    set(GROUND_ - 6, 64, "U");
+    set(GROUND_ - 6, 38, "C");
+    set(GROUND_ - 6, 50, "C");
+    setRect(GROUND_ - 3, 78, GROUND_ - 1, 78, "S");
+    set(GROUND_, 90, "B");
+    setRect(GROUND_ - 3, 100, GROUND_ - 1, 100, "S");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 1, 16, "C");
+    set(GROUND_ - 1, 72, "C");
+    set(GROUND_ - 4, 78, "C");
+    set(GROUND_ - 1, 86, "C");
+    set(GROUND_ - 4, 100, "C");
+    set(GROUND_ - 1, 110, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 110 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.0,
+          w: 36, h: 36,
+          cooldown: 280,
+          initialDelay: 200,
+        },
+      ],
+      missiles: [
+        {
+          spawnX: 115 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 2.8, accel: 0.12,
+          cooldown: 240, initialDelay: 120,
+        },
+        {
+          spawnX: 115 * TILE,
+          spawnY: (GROUND_ - 9) * TILE,
+          speed: 2.6, accel: 0.10,
+          cooldown: 320, initialDelay: 280,
+        },
+      ],
+      reversers: { minDelay: 180, maxDelay: 300, initialDelay: 130 },
+    };
+  }
+
+  function buildLevel97(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 30; c <= 50; c++) set(r, c, " ");
+    set(GROUND_ - 1, 26, "P");
+    set(GROUND_ - 1, 56, "P");
+    setRect(GROUND_ - 3, 14, GROUND_ - 1, 14, "S");
+    set(GROUND_, 22, "B");
+    setRect(GROUND_ - 3, 70, GROUND_ - 1, 70, "S");
+    set(GROUND_ - 1, 80, "X");
+    setRect(GROUND_ - 3, 90, GROUND_ - 1, 90, "S");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 4, 14, "C");
+    set(GROUND_ - 1, 60, "C");
+    set(GROUND_ - 4, 70, "C");
+    set(GROUND_ - 1, 86, "C");
+    set(GROUND_ - 4, 90, "C");
+    set(GROUND_ - 1, 100, "C");
+    set(GROUND_ - 1, 114, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 110 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.0,
+          w: 36, h: 36,
+          cooldown: 260,
+          initialDelay: 160,
+        },
+      ],
+      missiles: [
+        {
+          spawnX: 115 * TILE,
+          spawnY: (GROUND_ - 5) * TILE,
+          speed: 2.8, accel: 0.12,
+          cooldown: 260, initialDelay: 140,
+        },
+        {
+          spawnX: 115 * TILE,
+          spawnY: (GROUND_ - 9) * TILE,
+          speed: 2.6, accel: 0.10,
+          cooldown: 320, initialDelay: 280,
+        },
+        {
+          spawnX: 5 * TILE,
+          spawnY: (GROUND_ - 8) * TILE,
+          speed: 2.4, accel: 0.09,
+          cooldown: 360, initialDelay: 380,
+        },
+      ],
+      reversers: { minDelay: 200, maxDelay: 340, initialDelay: 140 },
+    };
+  }
+
+  function buildLevel98(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    addVineColumn(set, setRect, GROUND_, 16, 17, 24);
+    setRect(GROUND_ - 3, 30, GROUND_ - 3, 34, "F");
+    setRect(GROUND_ - 3, 40, GROUND_ - 3, 44, "F");
+    setRect(GROUND_ - 3, 50, GROUND_ - 3, 54, "F");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 64; c <= 66; c++) set(r, c, " ");
+    setRect(GROUND_ - 3, 76, GROUND_ - 1, 76, "S");
+    set(GROUND_, 86, "B");
+    setRect(GROUND_ - 3, 94, GROUND_ - 1, 94, "S");
+    setRect(GROUND_ - 3, 110, GROUND_ - 1, 110, "S");
+    set(GROUND_ - 1, 122, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 8, 20, "C");
+    set(GROUND_ - 4, 32, "C");
+    set(GROUND_ - 4, 42, "C");
+    set(GROUND_ - 4, 52, "C");
+    set(GROUND_ - 1, 60, "C");
+    set(GROUND_ - 1, 72, "C");
+    set(GROUND_ - 4, 76, "C");
+    set(GROUND_ - 4, 94, "C");
+    set(GROUND_ - 1, 102, "C");
+    set(GROUND_ - 4, 110, "C");
+    set(GROUND_ - 1, 118, "C");
+    set(GROUND_ - 1, 130, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 130 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.0,
+          w: 36, h: 36,
+          cooldown: 280,
+          initialDelay: 200,
+        },
+      ],
+      missiles: [
+        {
+          spawnX: 135 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 2.8, accel: 0.12,
+          cooldown: 240, initialDelay: 120,
+        },
+        {
+          spawnX: 135 * TILE,
+          spawnY: (GROUND_ - 9) * TILE,
+          speed: 2.6, accel: 0.10,
+          cooldown: 320, initialDelay: 280,
+        },
+      ],
+      reversers: { minDelay: 180, maxDelay: 300, initialDelay: 130 },
+    };
+  }
+
+  function buildLevel99(grid_, COLS_, GROUND_, set, setRect) {
+    var ec = COLS_ - 1;
+    setRect(GROUND_, 0, GROUND_, ec, "G");
+    setRect(GROUND_ + 1, 0, ROWS - 1, ec, "D");
+    setRect(GROUND_ - 3, 14, GROUND_ - 1, 14, "S");
+    set(GROUND_, 22, "B");
+    addVineColumn(set, setRect, GROUND_, 30, 31, 36);
+    setRect(GROUND_ - 3, 40, GROUND_ - 3, 44, "F");
+    setRect(GROUND_ - 3, 48, GROUND_ - 3, 52, "F");
+    setRect(GROUND_ - 3, 56, GROUND_ - 3, 60, "F");
+    for (var r = GROUND_; r < ROWS; r++) for (var c = 70; c <= 72; c++) set(r, c, " ");
+    set(GROUND_ - 1, 80, "X");
+    setRect(GROUND_ - 3, 90, GROUND_ - 1, 90, "S");
+    for (var c2 = 102; c2 <= 134; c2++) set(GROUND_ - 1, c2, "X");
+    setRect(GROUND_ - 7, 100, GROUND_ - 7, 136, "G");
+    setRect(GROUND_ - 8, 100, GROUND_ - 8, 136, "D");
+    set(GROUND_ - 1, 100, "U");
+    set(GROUND_ - 6, 134, "U");
+    set(GROUND_ - 6, 112, "C");
+    set(GROUND_ - 6, 124, "C");
+    setRect(GROUND_ - 3, 146, GROUND_ - 1, 146, "S");
+    set(GROUND_ - 1, 156, "X");
+    set(GROUND_ - 1, 6, "C");
+    set(GROUND_ - 4, 14, "C");
+    set(GROUND_ - 8, 34, "C");
+    set(GROUND_ - 4, 42, "C");
+    set(GROUND_ - 4, 50, "C");
+    set(GROUND_ - 4, 58, "C");
+    set(GROUND_ - 1, 66, "C");
+    set(GROUND_ - 1, 78, "C");
+    set(GROUND_ - 4, 90, "C");
+    set(GROUND_ - 1, 96, "C");
+    set(GROUND_ - 4, 146, "C");
+    set(GROUND_ - 1, 162, "C");
+    set(GROUND_ - 1, ec - 2, "E");
+    return {
+      spawn: { x: 50, y: (GROUND_ - 1) * TILE - 2 },
+      movers: [],
+      boulders: [
+        {
+          spawnX: 88 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -3.2,
+          w: 36, h: 36,
+          cooldown: 240,
+          initialDelay: 180,
+        },
+        {
+          spawnX: 88 * TILE,
+          y: GROUND_ * TILE - 18,
+          vx: -2.6,
+          w: 32, h: 32,
+          cooldown: 320,
+          initialDelay: 360,
+        },
+      ],
+      missiles: [
+        {
+          spawnX: 165 * TILE,
+          spawnY: (GROUND_ - 6) * TILE,
+          speed: 2.9, accel: 0.13,
+          cooldown: 240, initialDelay: 120,
+        },
+        {
+          spawnX: 165 * TILE,
+          spawnY: (GROUND_ - 9) * TILE,
+          speed: 2.7, accel: 0.11,
+          cooldown: 300, initialDelay: 260,
+        },
+        {
+          spawnX: 5 * TILE,
+          spawnY: (GROUND_ - 8) * TILE,
+          speed: 2.4, accel: 0.09,
+          cooldown: 380, initialDelay: 420,
+        },
+      ],
+      reversers: { minDelay: 160, maxDelay: 280, initialDelay: 140 },
+    };
+  }
+
   var LEVELS = [
-    { name: "Sunrise Trail", cols: 90, build: buildLevel00 },
     { name: "Misty Marsh", cols: 44, build: buildLevel01 },
     { name: "Thorn Canopy", cols: 48, build: buildLevel02 },
+    { name: "Sunrise Trail", cols: 90, build: buildLevel00 },
     { name: "Broken Planks", cols: 40, build: buildLevel03 },
     { name: "Log Ferry", cols: 48, build: buildLevel04 },
     { name: "Twin Vines", cols: 52, build: buildLevel05 },
@@ -979,6 +4050,76 @@
     { name: "Twin Scarps", cols: 50, build: buildLevel27 },
     { name: "Last Clearing", cols: 72, build: buildLevel28 },
     { name: "Skybreaker", cols: 84, build: buildLevel29 },
+    { name: "Storm Gate", cols: 52, build: buildLevel30 },
+    { name: "Pillar Run", cols: 56, build: buildLevel31 },
+    { name: "Sky Vines", cols: 60, build: buildLevel32 },
+    { name: "Crumble Drift", cols: 60, build: buildLevel33 },
+    { name: "Final Ascent", cols: 72, build: buildLevel34 },
+    { name: "Tunnel Loop", cols: 80, build: buildLevel35 },
+    { name: "Sky Shortcut", cols: 90, build: buildLevel36 },
+    { name: "Long Mile", cols: 100, build: buildLevel37 },
+    { name: "Bomb Bypass", cols: 90, build: buildLevel38 },
+    { name: "Citadel", cols: 110, build: buildLevel39 },
+    { name: "Rising Tower", cols: 70, build: buildLevel40 },
+    { name: "Twin Lifts", cols: 80, build: buildLevel41 },
+    { name: "Crossroads", cols: 90, build: buildLevel42 },
+    { name: "Sky Vault", cols: 100, build: buildLevel43 },
+    { name: "The Final Trial", cols: 120, build: buildLevel44 },
+    { name: "Boulder Run", cols: 90, build: buildLevel45 },
+    { name: "Twin Boulders", cols: 100, build: buildLevel46 },
+    { name: "Avalanche", cols: 100, build: buildLevel47 },
+    { name: "Ridge Boulder", cols: 110, build: buildLevel48 },
+    { name: "Stone Storm", cols: 140, build: buildLevel49 },
+    { name: "Topsy Turvy", cols: 80, build: buildLevel50 },
+    { name: "Spike Floor", cols: 90, build: buildLevel51 },
+    { name: "Inverted Gauntlet", cols: 100, build: buildLevel52 },
+    { name: "Twin Worlds", cols: 100, build: buildLevel53 },
+    { name: "Final Reversal", cols: 120, build: buildLevel54 },
+    { name: "Triple Flip", cols: 90, build: buildLevel55 },
+    { name: "Pit Bridge", cols: 110, build: buildLevel56 },
+    { name: "Spike Skylane", cols: 110, build: buildLevel57 },
+    { name: "Boulder Bypass II", cols: 110, build: buildLevel58 },
+    { name: "Universe Inverted", cols: 140, build: buildLevel59 },
+    { name: "Reflect Pool", cols: 100, build: buildLevel60 },
+    { name: "Hanging Gauntlet", cols: 110, build: buildLevel61 },
+    { name: "Twin Echo", cols: 120, build: buildLevel62 },
+    { name: "Stone Mirror", cols: 130, build: buildLevel63 },
+    { name: "Origin", cols: 150, build: buildLevel64 },
+    { name: "Pursuit", cols: 100, build: buildLevel65 },
+    { name: "Cover Run", cols: 110, build: buildLevel66 },
+    { name: "Two Hunters", cols: 130, build: buildLevel67 },
+    { name: "Sky Hunt", cols: 130, build: buildLevel68 },
+    { name: "Final Hunt", cols: 160, build: buildLevel69 },
+    { name: "Cannon Range", cols: 110, build: buildLevel70 },
+    { name: "Crossfire", cols: 120, build: buildLevel71 },
+    { name: "Triple Cannon", cols: 130, build: buildLevel72 },
+    { name: "Sky Cannon", cols: 130, build: buildLevel73 },
+    { name: "Apocalypse", cols: 160, build: buildLevel74 },
+    { name: "Storm Forge", cols: 130, build: buildLevel75 },
+    { name: "Mirror Hunt", cols: 140, build: buildLevel76 },
+    { name: "Sky Boulders", cols: 130, build: buildLevel77 },
+    { name: "Triple Trial", cols: 150, build: buildLevel78 },
+    { name: "World's End", cols: 180, build: buildLevel79 },
+    { name: "Twist Trail", cols: 80, build: buildLevel80 },
+    { name: "Reverse Run", cols: 90, build: buildLevel81 },
+    { name: "Switching Gauntlet", cols: 100, build: buildLevel82 },
+    { name: "Reversal Maze", cols: 110, build: buildLevel83 },
+    { name: "Final Twist", cols: 130, build: buildLevel84 },
+    { name: "Tangle Trail", cols: 90, build: buildLevel85 },
+    { name: "Boulder Climb", cols: 100, build: buildLevel86 },
+    { name: "Twin Vines Twist", cols: 100, build: buildLevel87 },
+    { name: "Reversed Heights", cols: 110, build: buildLevel88 },
+    { name: "Crown of Vines", cols: 130, build: buildLevel89 },
+    { name: "Lift Off", cols: 90, build: buildLevel90 },
+    { name: "Cannon Lifts", cols: 100, build: buildLevel91 },
+    { name: "Flip Lift", cols: 100, build: buildLevel92 },
+    { name: "Crumble Sky", cols: 100, build: buildLevel93 },
+    { name: "Sky Apocalypse", cols: 120, build: buildLevel94 },
+    { name: "Boulder Pursuit", cols: 110, build: buildLevel95 },
+    { name: "Mirror Hunt II", cols: 120, build: buildLevel96 },
+    { name: "Portal Cannon", cols: 120, build: buildLevel97 },
+    { name: "Infinity Run", cols: 140, build: buildLevel98 },
+    { name: "The End", cols: 170, build: buildLevel99 },
   ];
 
   function loadLevel(idx) {
@@ -998,11 +4139,49 @@
     var out = def.build(grid, COLS, GROUND, set, setRect);
     levelSpawn = out.spawn;
     movers = out.movers || [];
+    boulders = (out.boulders || []).map(function (b) {
+      return {
+        spawnX: b.spawnX,
+        spawnY: b.y,
+        x: b.spawnX,
+        y: b.y,
+        vx: b.vx,
+        vy: 0,
+        w: b.w || 36,
+        h: b.h || 36,
+        cooldown: b.cooldown || 120,
+        cooldownT: b.initialDelay || 0,
+        alive: false,
+        rot: 0,
+      };
+    });
+    missiles = (out.missiles || []).map(function (mm) {
+      return {
+        spawnX: mm.spawnX,
+        spawnY: mm.spawnY,
+        x: mm.spawnX,
+        y: mm.spawnY,
+        vx: 0,
+        vy: 0,
+        speed: mm.speed || 2.5,
+        accel: mm.accel || 0.12,
+        w: mm.w || 26,
+        h: mm.h || 14,
+        cooldown: mm.cooldown || 300,
+        cooldownT: mm.initialDelay || 0,
+        alive: false,
+        rot: 0,
+        firedT: 0,
+      };
+    });
     for (var k in crumble) delete crumble[k];
     for (var r = 0; r < ROWS; r++)
       for (var c = 0; c < COLS; c++) {
         if (grid[r][c] === "F") crumble[r + "," + c] = { state: "solid", t: 0 };
       }
+    portals = [];
+    for (var pr = 0; pr < ROWS; pr++)
+      for (var pc = 0; pc < COLS; pc++) if (grid[pr][pc] === "P") portals.push({ r: pr, c: pc });
     totalGems = 0;
     for (var gr = 0; gr < ROWS; gr++)
       for (var gc = 0; gc < COLS; gc++) if (grid[gr][gc] === "C") totalGems++;
@@ -1015,8 +4194,21 @@
     }
     bombs = [];
     volatileRestores = [];
+    gemHintT = 0;
     devilTimer =
-      currentLevel >= DEVIL_DIFFICULTY_FROM_INDEX ? 1.4 + Math.random() * 2.2 : 0;
+      currentLevel >= DEVIL_DIFFICULTY_FROM_INDEX && currentLevel < DEVIL_DIFFICULTY_TO_INDEX
+        ? 1.4 + Math.random() * 2.2
+        : 0;
+    reversers = [];
+    if (out.reversers) {
+      reverserActive = true;
+      reverserSpawnMin = out.reversers.minDelay || 180;
+      reverserSpawnMax = out.reversers.maxDelay || 360;
+      reverserSpawnT = (out.reversers.initialDelay || 90) + Math.floor(Math.random() * 60);
+    } else {
+      reverserActive = false;
+      reverserSpawnT = 0;
+    }
   }
 
   function syncHudLevel() {
@@ -1044,6 +4236,21 @@
     cameraX = 0;
     for (var k in crumble) crumble[k] = { state: "solid", t: 0 };
     bombs = [];
+    volatileRestores = [];
+    player.portalLockIdx = -1;
+    player.gravityDir = 1;
+    player.gravityFlipCooldown = 0;
+    for (var bi = 0; bi < boulders.length; bi++) {
+      boulders[bi].alive = false;
+      boulders[bi].cooldownT = 60;
+    }
+    for (var mi = 0; mi < missiles.length; mi++) {
+      missiles[mi].alive = false;
+      missiles[mi].cooldownT = 90;
+    }
+    reversers = [];
+    if (reverserActive) reverserSpawnT = 90 + Math.floor(Math.random() * 60);
+    player.controlsReverseT = 0;
   }
 
   function syncRunButtonVisual() {
@@ -1054,7 +4261,7 @@
   }
 
   function rollDevilEvent() {
-    if (currentLevel < DEVIL_DIFFICULTY_FROM_INDEX || !player.alive || gameState !== "playing") return;
+    if (currentLevel < DEVIL_DIFFICULTY_FROM_INDEX || currentLevel >= DEVIL_DIFFICULTY_TO_INDEX || !player.alive || gameState !== "playing") return;
     var r = Math.random();
     /* Fewer surprise floor holes than bombs; bombs slowed in spawnBombFromSky / updateBombs. */
     if (r < 0.28) voidGroundAhead();
@@ -1203,6 +4410,540 @@
     }
   }
 
+  function boulderTileSolid(t) {
+    return t === "G" || t === "D" || t === "S" || t === "B";
+  }
+
+  function updateBoulders() {
+    for (var i = 0; i < boulders.length; i++) {
+      var b = boulders[i];
+      if (!b.alive) {
+        b.cooldownT--;
+        if (b.cooldownT <= 0) {
+          b.alive = true;
+          b.x = b.spawnX;
+          b.y = b.spawnY;
+          b.vy = 0;
+          b.rot = 0;
+        }
+        continue;
+      }
+      b.vy = Math.min(14, b.vy + 0.5);
+      b.y += b.vy;
+      var c = Math.floor(b.x / TILE);
+      var bottomRow = Math.floor((b.y + b.h / 2) / TILE);
+      if (b.vy >= 0 && bottomRow >= 0 && bottomRow < ROWS && c >= 0 && c < COLS) {
+        var t = grid[bottomRow][c];
+        if (boulderTileSolid(t)) {
+          b.y = bottomRow * TILE - b.h / 2;
+          b.vy = 0;
+        }
+      }
+      b.x += b.vx;
+      b.rot += b.vx * 0.06;
+      if (b.x < -b.w || b.x > LEVEL_W + b.w || b.y > LEVEL_H + 80) {
+        b.alive = false;
+        b.cooldownT = b.cooldown;
+        continue;
+      }
+      if (player.alive && rectOverlap(player.x + 3, player.y + 4, player.w - 6, player.h - 6, b.x - b.w / 2 + 4, b.y - b.h / 2 + 4, b.w - 8, b.h - 8)) {
+        die();
+      }
+    }
+  }
+
+  function drawBouldersWorld() {
+    for (var i = 0; i < boulders.length; i++) {
+      var b = boulders[i];
+      if (!b.alive) continue;
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      ctx.beginPath();
+      ctx.ellipse(0, b.h / 2 - 2, b.w / 2 - 2, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.rotate(b.rot);
+      var grad = ctx.createRadialGradient(-b.w / 6, -b.h / 6, 2, 0, 0, b.w / 2);
+      grad.addColorStop(0, "#998470");
+      grad.addColorStop(0.6, "#6b5544");
+      grad.addColorStop(1, "#3d2e22");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(0, 0, b.w / 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(20,12,6,0.55)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255,235,200,0.18)";
+      ctx.beginPath();
+      ctx.arc(-b.w / 5, -b.h / 5, b.w / 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(20,12,6,0.5)";
+      ctx.beginPath();
+      ctx.arc(b.w / 6, b.h / 8, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(-b.w / 8, b.h / 5, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function updateMissiles() {
+    for (var i = 0; i < missiles.length; i++) {
+      var m = missiles[i];
+      if (m.firedT > 0) m.firedT--;
+      if (player.alive) {
+        var apdx = player.x + player.w / 2 - m.spawnX;
+        var apdy = player.y + player.h / 2 - m.spawnY;
+        var tgtAngle = Math.atan2(apdy, apdx);
+        if (typeof m.aimAngle !== "number") m.aimAngle = tgtAngle;
+        var adiff = tgtAngle - m.aimAngle;
+        while (adiff > Math.PI) adiff -= 2 * Math.PI;
+        while (adiff < -Math.PI) adiff += 2 * Math.PI;
+        m.aimAngle += adiff * 0.12;
+      }
+      if (!m.alive) {
+        m.cooldownT--;
+        if (m.cooldownT <= 0) {
+          m.alive = true;
+          m.x = m.spawnX;
+          m.y = m.spawnY;
+          if (player.alive) {
+            var ldx = player.x + player.w / 2 - m.x;
+            var ldy = player.y + player.h / 2 - m.y;
+            var ld = Math.sqrt(ldx * ldx + ldy * ldy) || 1;
+            m.vx = (ldx / ld) * m.speed * 0.6;
+            m.vy = (ldy / ld) * m.speed * 0.6;
+            m.rot = Math.atan2(m.vy, m.vx);
+            var mzx = m.spawnX + Math.cos(m.rot) * 34;
+            var mzy = m.spawnY + Math.sin(m.rot) * 34;
+            for (var pk = 0; pk < 14; pk++) {
+              var sp = 1 + Math.random() * 2.5;
+              var jit = (Math.random() - 0.5) * 0.7;
+              particles.push({
+                x: mzx + (Math.random() - 0.5) * 6,
+                y: mzy + (Math.random() - 0.5) * 6,
+                vx: Math.cos(m.rot + jit) * sp,
+                vy: Math.sin(m.rot + jit) * sp,
+                life: 22 + Math.random() * 22,
+                color: pk < 4 ? "#fff5d0" : pk < 8 ? "#ffae42" : pk < 11 ? "#7a7a7a" : "#aaa",
+                size: 2 + Math.random() * 3,
+              });
+            }
+          } else {
+            m.vx = 0;
+            m.vy = 0;
+            m.rot = 0;
+          }
+          m.firedT = 16;
+        }
+        continue;
+      }
+      if (player.alive) {
+        var dx = player.x + player.w / 2 - m.x;
+        var dy = player.y + player.h / 2 - m.y;
+        var dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        m.vx += (dx / dist) * m.accel;
+        m.vy += (dy / dist) * m.accel;
+        var spd = Math.sqrt(m.vx * m.vx + m.vy * m.vy);
+        if (spd > m.speed) {
+          m.vx = (m.vx / spd) * m.speed;
+          m.vy = (m.vy / spd) * m.speed;
+        }
+      }
+      m.x += m.vx;
+      m.y += m.vy;
+      m.rot = Math.atan2(m.vy, m.vx);
+      var col = Math.floor(m.x / TILE);
+      var row = Math.floor(m.y / TILE);
+      if (row >= 0 && row < ROWS && col >= 0 && col < COLS) {
+        var t = grid[row][col];
+        if (t === "G" || t === "D" || t === "S" || t === "B") {
+          m.alive = false;
+          m.cooldownT = m.cooldown;
+          for (var k = 0; k < 14; k++) {
+            particles.push({
+              x: m.x, y: m.y,
+              vx: (Math.random() - 0.5) * 6,
+              vy: (Math.random() - 0.5) * 6,
+              life: 28 + Math.random() * 20,
+              color: ["#ff8a3a", "#ffd060", "#3a3a3a"][k % 3],
+              size: 2 + Math.random() * 3,
+            });
+          }
+          continue;
+        }
+      }
+      if (m.x < -m.w || m.x > LEVEL_W + m.w || m.y < -m.h || m.y > LEVEL_H + m.h) {
+        m.alive = false;
+        m.cooldownT = m.cooldown;
+        continue;
+      }
+      if (player.alive && rectOverlap(player.x + 3, player.y + 4, player.w - 6, player.h - 6, m.x - m.w / 2 + 2, m.y - m.h / 2 + 2, m.w - 4, m.h - 4)) {
+        die();
+      }
+    }
+  }
+
+  function drawMissileCannons() {
+    var nowT = performance.now();
+    for (var i = 0; i < missiles.length; i++) {
+      var m = missiles[i];
+      var sx = m.spawnX, sy = m.spawnY;
+      var angle = typeof m.aimAngle === "number" ? m.aimAngle : (m.alive ? m.rot : 0);
+      var charging = !m.alive && m.cooldownT > 0 && m.cooldownT < 70;
+      var chargeT = charging ? 1 - m.cooldownT / 70 : 0;
+
+      // ---- Shadow + base mount ----
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.fillStyle = "rgba(0,0,0,0.42)";
+      ctx.beginPath();
+      ctx.ellipse(0, 16, 19, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      var bg = ctx.createLinearGradient(0, 0, 0, 18);
+      bg.addColorStop(0, "#4a4a4a");
+      bg.addColorStop(0.4, "#2a2a2a");
+      bg.addColorStop(1, "#161616");
+      ctx.fillStyle = bg;
+      ctx.fillRect(-15, 0, 30, 18);
+      ctx.strokeStyle = "#0a0a0a";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-15, 0, 30, 18);
+      ctx.fillStyle = "#5a5a5a";
+      ctx.fillRect(-13, 1, 26, 1.5);
+      ctx.fillStyle = "#3a3a3a";
+      ctx.fillRect(-12, 5, 24, 10);
+      ctx.strokeStyle = "#0a0a0a";
+      ctx.strokeRect(-12, 5, 24, 10);
+      ctx.fillStyle = "#1a1a1a";
+      ctx.fillRect(-10, 7, 4, 6);
+      ctx.fillRect(-3, 7, 6, 6);
+      ctx.fillRect(6, 7, 4, 6);
+      ctx.fillStyle = "rgba(80,180,80,0.7)";
+      ctx.fillRect(-2, 8, 4, 1);
+      ctx.fillRect(-2, 11, 4, 1);
+      for (var b = -10; b <= 10; b += 5) {
+        ctx.fillStyle = "#9a9a9a";
+        ctx.beginPath();
+        ctx.arc(b, 16, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#000";
+        ctx.beginPath();
+        ctx.arc(b, 16, 0.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // ---- Rotating turret head ----
+      var kick = m.firedT > 0 ? Math.pow(m.firedT / 16, 0.7) * 7 : 0;
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(angle);
+      ctx.translate(-kick, 0);
+
+      var hg = ctx.createRadialGradient(-3, -3, 1, 0, 0, 12);
+      hg.addColorStop(0, "#7a7a7a");
+      hg.addColorStop(0.6, "#3a3a3a");
+      hg.addColorStop(1, "#1a1a1a");
+      ctx.fillStyle = hg;
+      ctx.beginPath();
+      ctx.arc(0, 0, 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#0a0a0a";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = "#222";
+      ctx.fillRect(-9, -1.5, 7, 3);
+      ctx.fillRect(2, -1.5, 7, 3);
+
+      ctx.strokeStyle = "#1a1a1a";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(-7, -9);
+      ctx.lineTo(-10, -16);
+      ctx.stroke();
+      var antBlink = (Math.floor(nowT / 280) % 2) === 0 ? 1 : 0.4;
+      ctx.fillStyle = "rgba(255," + Math.floor(60 * antBlink + 40) + "," + Math.floor(60 * antBlink + 40) + ",0.95)";
+      ctx.beginPath();
+      ctx.arc(-10, -16, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.6)";
+      ctx.beginPath();
+      ctx.arc(-10.5, -16.5, 0.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      var brg = ctx.createLinearGradient(0, -7, 0, 7);
+      brg.addColorStop(0, "#4a4a4a");
+      brg.addColorStop(0.5, "#2a2a2a");
+      brg.addColorStop(1, "#1a1a1a");
+      ctx.fillStyle = brg;
+      ctx.fillRect(2, -7, 28, 14);
+      ctx.strokeStyle = "#0a0a0a";
+      ctx.strokeRect(2, -7, 28, 14);
+      ctx.fillStyle = "#5a5a5a";
+      ctx.fillRect(4, -6, 24, 1);
+      ctx.fillStyle = "#0e0e0e";
+      ctx.fillRect(7, -4, 20, 1.5);
+      ctx.fillRect(7, -1, 20, 1.5);
+      ctx.fillRect(7, 2, 20, 1.5);
+
+      if (chargeT > 0) {
+        var hAlpha = chargeT * chargeT;
+        var heat = ctx.createLinearGradient(8, 0, 30, 0);
+        heat.addColorStop(0, "rgba(255, 60, 30, " + (hAlpha * 0.45) + ")");
+        heat.addColorStop(0.7, "rgba(255, 180, 60, " + (hAlpha * 0.7) + ")");
+        heat.addColorStop(1, "rgba(255, 240, 200, " + (hAlpha * 0.95) + ")");
+        ctx.fillStyle = heat;
+        ctx.fillRect(2, -7, 28, 14);
+      }
+
+      ctx.fillStyle = "#9a9a9a";
+      ctx.fillRect(28, -8, 5, 16);
+      ctx.strokeRect(28, -8, 5, 16);
+      ctx.fillStyle = "#000";
+      ctx.beginPath();
+      ctx.arc(32, 0, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#1a1a1a";
+      ctx.beginPath();
+      ctx.arc(32, 0, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (chargeT > 0.3) {
+        var rt = (chargeT - 0.3) / 0.7;
+        var ringR = 5 + Math.sin(nowT / 30) * 1.5 + rt * 2;
+        ctx.strokeStyle = "rgba(255, 220, 100, " + rt + ")";
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.arc(32, 0, ringR, 0, Math.PI * 2);
+        ctx.stroke();
+        var coreA = 0.6 + Math.sin(nowT / 30) * 0.3;
+        var cg = ctx.createRadialGradient(32, 0, 0, 32, 0, ringR);
+        cg.addColorStop(0, "rgba(255, 255, 220, " + (rt * coreA) + ")");
+        cg.addColorStop(0.6, "rgba(255, 180, 80, " + (rt * coreA * 0.6) + ")");
+        cg.addColorStop(1, "rgba(255, 80, 40, 0)");
+        ctx.fillStyle = cg;
+        ctx.beginPath();
+        ctx.arc(32, 0, ringR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      var visorOn = m.alive || charging;
+      ctx.fillStyle = visorOn ? "#cc3a3a" : "#3a8a3a";
+      ctx.beginPath();
+      ctx.arc(6, 0, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      if (visorOn) {
+        var vp = 0.4 + 0.6 * Math.sin(nowT / 70);
+        ctx.fillStyle = "rgba(255, 220, 220, " + vp + ")";
+        ctx.beginPath();
+        ctx.arc(6, 0, 1.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (m.firedT > 0) {
+        var t = m.firedT / 16;
+        var burst = 1 - t;
+        var flashR = burst * 28 + 4;
+        var grad = ctx.createRadialGradient(36, 0, 0, 36, 0, flashR);
+        grad.addColorStop(0, "rgba(255, 255, 235, " + Math.min(1, t * 1.5) + ")");
+        grad.addColorStop(0.25, "rgba(255, 220, 130, " + t + ")");
+        grad.addColorStop(0.6, "rgba(255, 130, 50, " + t * 0.6 + ")");
+        grad.addColorStop(1, "rgba(180, 40, 20, 0)");
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(36, 0, flashR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(255, 255, 255, " + Math.min(1, t * 1.8) + ")";
+        ctx.beginPath();
+        ctx.arc(35, 0, 4 * t + 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255, 230, 150, " + t + ")";
+        ctx.lineWidth = 1.5;
+        for (var sp = 0; sp < 6; sp++) {
+          var sa = sp * (Math.PI / 3) + (1 - t) * 1.4;
+          var sl = flashR * (0.85 + Math.sin(sp * 1.7) * 0.25);
+          ctx.beginPath();
+          ctx.moveTo(36, 0);
+          ctx.lineTo(36 + Math.cos(sa) * sl, Math.sin(sa) * sl);
+          ctx.stroke();
+        }
+        ctx.strokeStyle = "rgba(180, 180, 180, " + t * 0.55 + ")";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(36, 0, burst * 22 + 7, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  function drawMissilesWorld() {
+    for (var i = 0; i < missiles.length; i++) {
+      var m = missiles[i];
+      if (!m.alive) continue;
+      ctx.save();
+      ctx.translate(m.x, m.y);
+      ctx.rotate(m.rot);
+      var flameLen = 12 + Math.sin(performance.now() / 50) * 4;
+      var fg = ctx.createLinearGradient(-m.w / 2 - flameLen, 0, -m.w / 2 + 2, 0);
+      fg.addColorStop(0, "rgba(255,180,60,0)");
+      fg.addColorStop(0.5, "rgba(255,200,80,0.85)");
+      fg.addColorStop(1, "rgba(255,240,140,0.95)");
+      ctx.fillStyle = fg;
+      ctx.beginPath();
+      ctx.moveTo(-m.w / 2 + 2, m.h / 3);
+      ctx.lineTo(-m.w / 2 - flameLen, 0);
+      ctx.lineTo(-m.w / 2 + 2, -m.h / 3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#2c2c2c";
+      ctx.beginPath();
+      ctx.moveTo(m.w / 2, 0);
+      ctx.lineTo(-m.w / 2 + 4, m.h / 2);
+      ctx.lineTo(-m.w / 2, m.h / 2);
+      ctx.lineTo(-m.w / 2 + 2, 0);
+      ctx.lineTo(-m.w / 2, -m.h / 2);
+      ctx.lineTo(-m.w / 2 + 4, -m.h / 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#cc3a3a";
+      ctx.beginPath();
+      ctx.arc(m.w / 4, 0, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,220,200,0.75)";
+      ctx.beginPath();
+      ctx.arc(m.w / 4 + 2, -1, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function spawnReverser() {
+    if (!player.alive) return;
+    var px = player.x + player.w / 2;
+    var dirCandidates = [];
+    if (player.facing > 0) dirCandidates.push(1, -1);
+    else dirCandidates.push(-1, 1);
+    for (var d = 0; d < dirCandidates.length; d++) {
+      var dir = dirCandidates[d];
+      for (var attempt = 0; attempt < 6; attempt++) {
+        var distTiles = 5 + Math.floor(Math.random() * 5);
+        var spawnX = px + dir * distTiles * TILE;
+        var col = Math.floor(spawnX / TILE);
+        if (col < 1 || col >= COLS - 1) continue;
+        var groundRow = -1;
+        var startR = Math.max(0, Math.floor(player.y / TILE));
+        for (var r = startR; r < ROWS; r++) {
+          if (tileSolid(grid[r][col], r, col)) { groundRow = r; break; }
+        }
+        if (groundRow < 0) continue;
+        var aboveTile = grid[groundRow - 1] ? grid[groundRow - 1][col] : " ";
+        if (aboveTile === "X" || aboveTile === "B" || aboveTile === "C" ||
+            aboveTile === "E" || aboveTile === "P" || aboveTile === "U" ||
+            aboveTile === "V") continue;
+        reversers.push({
+          x: col * TILE + TILE / 2,
+          y: (groundRow - 1) * TILE + TILE / 2 + 4,
+          alive: true,
+          spawnT: 0,
+          life: 600,
+        });
+        return;
+      }
+    }
+  }
+
+  function updateReversers() {
+    if (reverserActive && player.alive) {
+      if (reversers.length === 0) {
+        reverserSpawnT--;
+        if (reverserSpawnT <= 0) {
+          spawnReverser();
+          var range = reverserSpawnMax - reverserSpawnMin;
+          reverserSpawnT = reverserSpawnMin + Math.floor(Math.random() * range);
+        }
+      }
+    }
+    for (var i = reversers.length - 1; i >= 0; i--) {
+      var rv = reversers[i];
+      if (!rv.alive) { reversers.splice(i, 1); continue; }
+      rv.spawnT++;
+      rv.life--;
+      if (rv.life <= 0) { reversers.splice(i, 1); continue; }
+      if (player.alive && rv.spawnT >= 6) {
+        var dx = player.x + player.w / 2 - rv.x;
+        var dy = player.y + player.h / 2 - rv.y;
+        if (Math.abs(dx) < TILE * 0.55 && Math.abs(dy) < TILE * 0.7) {
+          player.controlsReverseT = 240;
+          for (var k = 0; k < 18; k++) {
+            particles.push({
+              x: rv.x + (Math.random() - 0.5) * 8,
+              y: rv.y + (Math.random() - 0.5) * 8,
+              vx: (Math.random() - 0.5) * 6,
+              vy: (Math.random() - 0.5) * 6 - 1,
+              life: 30 + Math.random() * 18,
+              color: k < 6 ? "#ff52d6" : k < 12 ? "#a062ff" : "#ffe2ff",
+              size: 2 + Math.random() * 3,
+            });
+          }
+          reversers.splice(i, 1);
+        }
+      }
+    }
+  }
+
+  function drawReversers() {
+    var nowT = performance.now();
+    for (var i = 0; i < reversers.length; i++) {
+      var rv = reversers[i];
+      var scale = Math.min(1, rv.spawnT / 8);
+      var alpha = rv.life > 90 ? 1 : Math.max(0, rv.life / 90);
+      var bob = Math.sin(nowT / 220) * 2;
+      ctx.save();
+      ctx.translate(rv.x, rv.y + bob);
+      ctx.globalAlpha = alpha;
+      var pulse = 1 + Math.sin(nowT / 140) * 0.08;
+      var glow = ctx.createRadialGradient(0, 0, 4, 0, 0, 22 * pulse);
+      glow.addColorStop(0, "rgba(255,80,220,0.55)");
+      glow.addColorStop(1, "rgba(80,30,100,0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(0, 0, 22 * pulse, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.scale(scale, scale);
+      ctx.rotate((nowT % 1500) / 1500 * Math.PI * 2);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#ff4de6";
+      ctx.beginPath();
+      ctx.arc(0, 0, 11, 0.35, Math.PI - 0.35);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, 11, Math.PI + 0.35, Math.PI * 2 - 0.35);
+      ctx.stroke();
+      ctx.fillStyle = "#ff4de6";
+      ctx.beginPath();
+      ctx.moveTo(-13, 1);
+      ctx.lineTo(-7, -4);
+      ctx.lineTo(-7, 6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(13, -1);
+      ctx.lineTo(7, 4);
+      ctx.lineTo(7, -6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#fff0ff";
+      ctx.beginPath();
+      ctx.arc(0, 0, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
   function jumpPressed() {
     return !!(
       keys["Space"] ||
@@ -1261,15 +5002,20 @@
           var ty = r * TILE;
           if (dy > 0) {
             p.y = ty - p.h;
-            p.onGround = true;
             p.vy = 0;
-            if (t === "F") {
+            if (p.gravityDir > 0) p.onGround = true;
+            if (t === "F" && p.gravityDir > 0) {
               var k = r + "," + c;
               if (crumble[k].state === "solid") crumble[k].state = "shaking";
             }
           } else if (dy < 0) {
             p.y = ty + TILE;
             p.vy = 0;
+            if (p.gravityDir < 0) p.onGround = true;
+            if (t === "F" && p.gravityDir < 0) {
+              var k2 = r + "," + c;
+              if (crumble[k2].state === "solid") crumble[k2].state = "shaking";
+            }
           }
         }
       }
@@ -1281,7 +5027,8 @@
           p.y = m.y - p.h;
           p.onGround = true;
           p.vy = 0;
-          p.x += m.dir * m.speed;
+          if (m.axis === "y") p.y += m.dir * m.speed;
+          else p.x += m.dir * m.speed;
         }
       }
     }
@@ -1319,7 +5066,17 @@
             spawnSparkle(tx + TILE / 2, ty + TILE / 2);
           }
         }
-        if (t === "E" && rectOverlap(player.x, player.y, player.w, player.h, tx, ty, TILE, TILE)) win();
+        if (t === "E" && rectOverlap(player.x, player.y, player.w, player.h, tx, ty, TILE, TILE)) {
+          if (gemsCollected.size >= totalGems) win();
+          else if (gemHintT <= 0) gemHintT = 150;
+        }
+        if (t === "U" && player.gravityFlipCooldown <= 0 && rectOverlap(player.x, player.y, player.w, player.h, tx + 4, ty + 4, TILE - 8, TILE - 8)) {
+          player.gravityDir = -player.gravityDir;
+          player.gravityFlipCooldown = 24;
+          player.vy = 0;
+          spawnSparkle(tx + TILE / 2, ty + TILE / 2);
+          spawnSparkle(player.x + player.w / 2, player.y + player.h / 2);
+        }
       }
     }
     player.onVine = onVine;
@@ -1337,7 +5094,34 @@
       player.vineSwing = 0;
       player.vineSwingVel = 0;
     }
-    if (player.y > LEVEL_H + 100) die();
+    if (portals.length === 2) {
+      var pcx = player.x + player.w / 2;
+      var pcy = player.y + player.h / 2;
+      var insideIdx = -1;
+      for (var pi = 0; pi < 2; pi++) {
+        var p0 = portals[pi];
+        var ptx = p0.c * TILE;
+        var pty = p0.r * TILE;
+        if (pcx >= ptx && pcx < ptx + TILE && pcy >= pty && pcy < pty + TILE) {
+          insideIdx = pi;
+          break;
+        }
+      }
+      if (insideIdx === -1) {
+        player.portalLockIdx = -1;
+      } else if (insideIdx !== player.portalLockIdx) {
+        var src = portals[insideIdx];
+        var dest = portals[1 - insideIdx];
+        player.x = dest.c * TILE + (TILE - player.w) / 2;
+        player.y = dest.r * TILE + (TILE - player.h) / 2;
+        player.portalLockIdx = 1 - insideIdx;
+        spawnSparkle(player.x + player.w / 2, player.y + player.h / 2);
+        spawnSparkle(src.c * TILE + TILE / 2, src.r * TILE + TILE / 2);
+      }
+    }
+    if (gemHintT > 0) gemHintT--;
+    if (player.gravityFlipCooldown > 0) player.gravityFlipCooldown--;
+    if (player.y > LEVEL_H + 100 || player.y < -120) die();
   }
 
   function die() {
@@ -1405,14 +5189,13 @@
       var running = keys["ShiftLeft"] || keys["ShiftRight"] || touchRunFast;
       var speed = running ? RUN : WALK;
       var ax = 0;
-      if (keys["ArrowLeft"] || keys["KeyA"] || touchInput.left) {
-        ax = -1;
-        player.facing = -1;
+      if (keys["ArrowLeft"] || keys["KeyA"] || touchInput.left) ax = -1;
+      if (keys["ArrowRight"] || keys["KeyD"] || touchInput.right) ax = 1;
+      if (player.controlsReverseT > 0) {
+        ax = -ax;
+        player.controlsReverseT--;
       }
-      if (keys["ArrowRight"] || keys["KeyD"] || touchInput.right) {
-        ax = 1;
-        player.facing = 1;
-      }
+      if (ax !== 0) player.facing = ax;
       if (player.onVine) {
         var vineCol = player.vineAttachCol >= 0 ? player.vineAttachCol : 40;
         var vineCenterX = vineCol * TILE + TILE / 2;
@@ -1449,15 +5232,19 @@
         if (jumpPressed()) player.jumpBuf = 8;
         else player.jumpBuf = Math.max(0, player.jumpBuf - 1);
         if (player.jumpBuf > 0 && player.coyote > 0) {
-          player.vy = -JUMP;
+          player.vy = -JUMP * player.gravityDir;
           player.onGround = false;
           player.coyote = 0;
           player.jumpBuf = 0;
         }
-        if (player.vy < -4 && !jumpHeld()) player.vy += 0.4;
-        player.vy += GRAVITY;
-        if (player.vy > MAX_FALL) player.vy = MAX_FALL;
-        if (!player.onGround) player.state = player.vy < 0 ? "jump" : "fall";
+        if (player.vy * player.gravityDir < -4 && !jumpHeld()) player.vy += 0.4 * player.gravityDir;
+        player.vy += GRAVITY * player.gravityDir;
+        if (player.gravityDir > 0) {
+          if (player.vy > MAX_FALL) player.vy = MAX_FALL;
+        } else {
+          if (player.vy < -MAX_FALL) player.vy = -MAX_FALL;
+        }
+        if (!player.onGround) player.state = player.vy * player.gravityDir < 0 ? "jump" : "fall";
         else if (Math.abs(player.vx) > 0.1) player.state = running ? "run" : "walk";
         else player.state = "idle";
         moveAndCollide(player, player.vx, 0);
@@ -1496,17 +5283,17 @@
     }
     for (var m = 0; m < movers.length; m++) {
       var mv = movers[m];
-      mv.x += mv.dir * mv.speed;
-      if (mv.x < mv.x0) {
-        mv.x = mv.x0;
-        mv.dir = 1;
-      }
-      if (mv.x > mv.x1) {
-        mv.x = mv.x1;
-        mv.dir = -1;
+      if (mv.axis === "y") {
+        mv.y += mv.dir * mv.speed;
+        if (mv.y < mv.y0) { mv.y = mv.y0; mv.dir = 1; }
+        if (mv.y > mv.y1) { mv.y = mv.y1; mv.dir = -1; }
+      } else {
+        mv.x += mv.dir * mv.speed;
+        if (mv.x < mv.x0) { mv.x = mv.x0; mv.dir = 1; }
+        if (mv.x > mv.x1) { mv.x = mv.x1; mv.dir = -1; }
       }
     }
-    if (currentLevel >= DEVIL_DIFFICULTY_FROM_INDEX) {
+    if (currentLevel >= DEVIL_DIFFICULTY_FROM_INDEX && currentLevel < DEVIL_DIFFICULTY_TO_INDEX) {
       devilTimer -= dt;
       if (devilTimer <= 0 && player.alive && gameState === "playing") {
         var pace = 5.4 + Math.random() * 3.2 - currentLevel * 0.05;
@@ -1516,6 +5303,9 @@
       updateVolatileRestores(dt);
       updateBombs(dt);
     }
+    updateBoulders();
+    updateMissiles();
+    updateReversers();
     for (var pi = 0; pi < particles.length; pi++) {
       var p = particles[pi];
       p.x += p.vx;
@@ -1560,17 +5350,30 @@
     ctx.fillRect(x + 4, y + 6, 8, 4);
     ctx.fillRect(x + 24, y + 22, 8, 4);
   }
-  function drawSpike(x, y) {
+  function drawSpike(x, y, inverted) {
     ctx.fillStyle = "#6e4a2a";
-    ctx.fillRect(x, y + TILE - 6, TILE, 6);
-    ctx.fillStyle = "#c0c4cc";
-    for (var i = 0; i < 5; i++) {
-      ctx.beginPath();
-      ctx.moveTo(x + i * 8, y + TILE - 6);
-      ctx.lineTo(x + i * 8 + 4, y + 10);
-      ctx.lineTo(x + i * 8 + 8, y + TILE - 6);
-      ctx.closePath();
-      ctx.fill();
+    if (inverted) {
+      ctx.fillRect(x, y, TILE, 6);
+      ctx.fillStyle = "#c0c4cc";
+      for (var i = 0; i < 5; i++) {
+        ctx.beginPath();
+        ctx.moveTo(x + i * 8, y + 6);
+        ctx.lineTo(x + i * 8 + 4, y + TILE - 10);
+        ctx.lineTo(x + i * 8 + 8, y + 6);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else {
+      ctx.fillRect(x, y + TILE - 6, TILE, 6);
+      ctx.fillStyle = "#c0c4cc";
+      for (var j = 0; j < 5; j++) {
+        ctx.beginPath();
+        ctx.moveTo(x + j * 8, y + TILE - 6);
+        ctx.lineTo(x + j * 8 + 4, y + 10);
+        ctx.lineTo(x + j * 8 + 8, y + TILE - 6);
+        ctx.closePath();
+        ctx.fill();
+      }
     }
   }
   function drawCrumble(x, y, cr) {
@@ -1635,6 +5438,58 @@
     ctx.fillRect(-7, -7, 4, 4);
     ctx.restore();
   }
+  function drawFlipTile(x, y) {
+    var cx = x + TILE / 2;
+    var cy = y + TILE / 2;
+    var pulse = 0.5 + 0.5 * Math.sin(performance.now() / 220);
+    ctx.save();
+    var grad = ctx.createRadialGradient(cx, cy, 2, cx, cy, TILE / 2);
+    grad.addColorStop(0, "rgba(160, 255, 180, " + (0.5 + pulse * 0.35) + ")");
+    grad.addColorStop(0.6, "rgba(70, 200, 110, 0.42)");
+    grad.addColorStop(1, "rgba(20, 60, 40, 0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, TILE / 2 - 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(20,80,40,0.85)";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 12);
+    ctx.lineTo(cx, cy + 12);
+    ctx.moveTo(cx - 6, cy - 6);
+    ctx.lineTo(cx, cy - 12);
+    ctx.lineTo(cx + 6, cy - 6);
+    ctx.moveTo(cx - 6, cy + 6);
+    ctx.lineTo(cx, cy + 12);
+    ctx.lineTo(cx + 6, cy + 6);
+    ctx.stroke();
+    ctx.restore();
+  }
+  function drawPortal(x, y) {
+    var cx = x + TILE / 2;
+    var cy = y + TILE / 2;
+    var t = performance.now() / 380;
+    ctx.save();
+    var grad = ctx.createRadialGradient(cx, cy, 2, cx, cy, TILE / 2);
+    grad.addColorStop(0, "rgba(245,220,255,0.95)");
+    grad.addColorStop(0.5, "rgba(155,108,255,0.55)");
+    grad.addColorStop(1, "rgba(48,12,96,0.0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, TILE / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.translate(cx, cy);
+    ctx.rotate(t);
+    ctx.lineWidth = 2;
+    for (var i = 0; i < 3; i++) {
+      ctx.strokeStyle = ["#d6b8ff", "#9b6cff", "#6f33d9"][i];
+      ctx.beginPath();
+      var rad = TILE / 2 - 4 - i * 4;
+      ctx.arc(0, 0, rad, i * 1.1, i * 1.1 + Math.PI * 1.3);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
   function drawEndFlag(x, y) {
     ctx.fillStyle = "#d4af37";
     ctx.fillRect(x + TILE / 2 - 2, y - TILE, 4, TILE * 2);
@@ -1671,7 +5526,9 @@
             drawStone(x, y);
             break;
           case "X":
-            drawSpike(x, y);
+            var spikeAbove = r > 0 ? grid[r - 1][c] : " ";
+            var spikeInverted = spikeAbove === "G" || spikeAbove === "D" || spikeAbove === "S";
+            drawSpike(x, y, spikeInverted);
             break;
           case "F":
             drawCrumble(x, y, crumble[r + "," + c]);
@@ -1684,6 +5541,12 @@
             break;
           case "E":
             drawEndFlag(x, y);
+            break;
+          case "P":
+            drawPortal(x, y);
+            break;
+          case "U":
+            drawFlipTile(x, y);
             break;
         }
       }
@@ -1713,9 +5576,33 @@
     var p = player;
     var cx = p.x + p.w / 2;
     var cy = p.y + p.h / 2;
+    if (p.alive && p.controlsReverseT > 0) {
+      var nowR = performance.now();
+      ctx.save();
+      ctx.translate(cx, p.y - 12);
+      var rotR = (nowR % 900) / 900 * Math.PI * 2;
+      ctx.rotate(rotR);
+      ctx.globalAlpha = 0.85;
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = "#ff4de6";
+      ctx.beginPath();
+      ctx.arc(0, 0, 7, 0.35, Math.PI - 0.35);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, 7, Math.PI + 0.35, Math.PI * 2 - 0.35);
+      ctx.stroke();
+      ctx.fillStyle = "#ff4de6";
+      ctx.beginPath();
+      ctx.moveTo(-9, 0); ctx.lineTo(-5, -3); ctx.lineTo(-5, 3); ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(9, 0); ctx.lineTo(5, 3); ctx.lineTo(5, -3); ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.scale(p.facing, 1);
+    ctx.scale(p.facing, p.gravityDir);
     ctx.translate(-p.w / 2, -p.h / 2);
     if (!p.alive) ctx.globalAlpha = Math.max(0, 1 - p.deathT);
     if (p.state === "climb" && Math.abs(p.vineSwing) > 0.25) {
@@ -1883,6 +5770,10 @@
     drawMovers();
     drawPlayer();
     drawBombsWorld();
+    drawBouldersWorld();
+    drawMissileCannons();
+    drawMissilesWorld();
+    drawReversers();
     drawParticles();
     ctx.restore();
     ctx.save();
@@ -1897,6 +5788,36 @@
     vg.addColorStop(1, "rgba(8, 42, 22, 0.42)");
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, W, H);
+    if (gemHintT > 0) drawGemHint();
+  }
+
+  function drawGemHint() {
+    var alpha = Math.min(1, gemHintT / 30);
+    var text = "Collect all gems first  " + gemsCollected.size + " / " + totalGems;
+    ctx.save();
+    ctx.font = "bold 22px system-ui, -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    var tw = ctx.measureText(text).width;
+    var bx = W / 2 - tw / 2 - 22;
+    var by = 64;
+    var bw = tw + 44;
+    var bh = 44;
+    ctx.fillStyle = "rgba(20, 12, 6, " + 0.78 * alpha + ")";
+    ctx.beginPath();
+    ctx.moveTo(bx + 12, by);
+    ctx.lineTo(bx + bw - 12, by);
+    ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + 12);
+    ctx.lineTo(bx + bw, by + bh - 12);
+    ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - 12, by + bh);
+    ctx.lineTo(bx + 12, by + bh);
+    ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - 12);
+    ctx.lineTo(bx, by + 12);
+    ctx.quadraticCurveTo(bx, by, bx + 12, by);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255, 235, 130, " + alpha + ")";
+    ctx.fillText(text, W / 2, by + bh / 2 + 1);
+    ctx.restore();
   }
 
   function loop(now) {
