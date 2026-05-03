@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="screen-orientation" content="landscape" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Jungle Adventure</title>
+  <script>
+    (function () {
+      try {
+        if (/[?&]unity-webview=1(?:&|$)/.test(location.search || ""))
+          document.documentElement.classList.add("unity-webview");
+      } catch (_) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/screens.css" />
+  <link rel="stylesheet" href="css/popups.css" />
+</head>
+<body>
+  <div id="rotateHint" aria-live="polite">
+    <div class="rotate-icon" aria-hidden="true">📱</div>
+    <p><strong>Rotate to landscape</strong><br>Jungle Adventure is built for wide screens.</p>
+  </div>
+
+  <div id="app" class="app">
+    <section id="screenMenu" class="screen screen-menu is-active" aria-hidden="false">
+      <div class="menu-bg"></div>
+      <div class="menu-content">
+        <h1 class="menu-title">Jungle Adventure</h1>
+        <p class="menu-tagline">Three worlds, thirty stages — reach the flag on each run.</p>
+        <div class="menu-actions">
+          <button type="button" class="btn btn-primary" id="btnPlay">Play</button>
+          <button type="button" class="btn btn-ghost" id="btnMenuSettings" aria-label="Settings">⚙️</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="screenWorld" class="screen screen-world" aria-hidden="true">
+      <header class="world-header">
+        <button type="button" class="btn btn-small btn-ghost" id="btnWorldBack">← Menu</button>
+        <div class="world-heading">
+          <h2 class="world-title" id="worldTitle">World 1</h2>
+          <p class="world-subtitle" id="worldSubtitle">Deep Jungle</p>
+          <p class="world-range" id="worldRangeLabel">Levels 1–30</p>
+        </div>
+        <button type="button" class="btn btn-small btn-ghost" id="btnWorldSettings" aria-label="Settings">⚙️</button>
+      </header>
+      <div class="world-body">
+        <div class="world-grid" id="worldGrid" role="list"></div>
+      </div>
+      <p class="world-footer">Unlocked stages are bright. Beat the flag to open the next number.</p>
+    </section>
+
+    <section id="screenLevel" class="screen screen-level" aria-hidden="true">
+      <div class="level-fullscreen">
+        <div class="level-game-stage">
+          <div class="level-game-stage-sizer" aria-hidden="true"></div>
+          <canvas id="game" width="960" height="540" aria-label="Game world"></canvas>
+          <div class="level-hud-overlay">
+            <div class="hud-cluster hud-left">
+              <span class="badge" id="gameLevelBadge">🌿 Level 1/30</span>
+              <span class="badge">❤️ <span id="gameLives">3</span></span>
+              <button type="button" class="badge badge-btn" id="btnGameLevels" title="Choose level">🔢</button>
+            </div>
+            <div class="hud-cluster hud-right">
+              <span class="badge">⏱️ <span id="gameTime">0.0</span>s</span>
+              <span class="badge">💎 <span id="gameGems">0</span><span id="gameGemsMax">/0</span></span>
+              <button type="button" class="btn btn-icon" id="btnPause" aria-label="Pause">⏸</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <button type="button" id="touchToggle" class="touch-toggle" aria-pressed="false">On-screen controls</button>
+      <div id="touchLayer" class="touch-layer" aria-hidden="true">
+        <div class="touch-left touch-zone">
+          <div class="touch-move">
+            <div class="touch-pad" data-touch="left" role="button" aria-label="Left">◀</div>
+            <div class="touch-pad" data-touch="right" role="button" aria-label="Right">▶</div>
+          </div>
+          <button
+            type="button"
+            class="touch-btn touch-run"
+            data-touch="run"
+            role="switch"
+            aria-checked="false"
+            aria-label="Fast run (tap to turn on or off)"
+          >
+            ⚡
+          </button>
+        </div>
+        <div class="touch-actions touch-zone">
+          <button type="button" class="touch-btn touch-climb" data-touch="up" aria-label="Climb up">▲</button>
+          <button type="button" class="touch-btn touch-jump" data-touch="jump" aria-label="Jump">Jump</button>
+          <button type="button" class="touch-btn touch-climb" data-touch="down" aria-label="Climb down">▼</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="popupSettings" class="popup" aria-hidden="true" role="dialog" aria-labelledby="settingsTitle">
+    <div class="popup-backdrop" data-close="settings"></div>
+    <div class="popup-panel">
+      <h2 id="settingsTitle" class="popup-title">Settings</h2>
+      <label class="setting-row"><span>Sound</span><input type="checkbox" id="settingSound" checked /></label>
+      <label class="setting-row"><span>Music</span><input type="checkbox" id="settingMusic" checked /></label>
+      <p class="popup-note">Saved on this device.</p>
+      <button type="button" class="btn btn-primary btn-block" data-close="settings">Close</button>
+    </div>
+  </div>
+
+  <div id="popupPause" class="popup" aria-hidden="true" role="dialog" aria-labelledby="pauseTitle">
+    <div class="popup-backdrop" data-close="pause-resume"></div>
+    <div class="popup-panel">
+      <h2 id="pauseTitle" class="popup-title">Paused</h2>
+      <p class="popup-sub">Your run is on hold.</p>
+      <div class="popup-actions stack">
+        <button type="button" class="btn btn-primary btn-block" id="btnResume">Resume</button>
+        <button type="button" class="btn btn-secondary btn-block" id="btnPauseLevels">Choose level</button>
+        <button type="button" class="btn btn-ghost btn-block" id="btnPauseMenu">Main menu</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="popupGameEnd" class="popup" aria-hidden="true" role="dialog" aria-labelledby="gameEndTitle">
+    <div class="popup-backdrop" data-game-end-backdrop></div>
+    <div class="popup-panel">
+      <h2 id="gameEndTitle" class="popup-title"></h2>
+      <p id="gameEndText" class="popup-sub"></p>
+      <div class="popup-actions stack" id="gameEndActions"></div>
+    </div>
+  </div>
+
+  <script src="js/storage.js"></script>
+  <script src="js/world-levels.js"></script>
+  <script src="js/bg-art.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

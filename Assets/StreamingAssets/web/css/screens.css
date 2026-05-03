@@ -1,0 +1,531 @@
+/* ----- Main menu ----- */
+.screen-menu {
+  position: relative;
+  align-items: center;
+  justify-content: center;
+}
+
+.menu-bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 70% 20%, rgba(126, 192, 238, 0.25), transparent 55%),
+    radial-gradient(ellipse 60% 50% at 20% 80%, rgba(106, 168, 79, 0.2), transparent 50%),
+    linear-gradient(165deg, #1a3d28 0%, #0b1d12 45%, #152418 100%);
+  pointer-events: none;
+}
+
+.menu-content {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  padding: 24px;
+  max-width: min(520px, 100%);
+}
+
+.menu-title {
+  font-size: clamp(1.75rem, 5.5vw, 2.75rem);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #fce17a;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.45);
+  margin-bottom: 10px;
+}
+
+.menu-tagline {
+  color: #a8c898;
+  font-size: clamp(0.95rem, 2.4vw, 1.1rem);
+  margin-bottom: 28px;
+  line-height: 1.45;
+}
+
+.menu-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* ----- Buttons ----- */
+.btn {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  padding: 12px 28px;
+  min-height: 44px;
+  min-width: 44px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  transition: background 0.15s, transform 0.12s, border-color 0.15s;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn-primary {
+  background: #6aa84f;
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.btn-primary:hover {
+  background: #7fbf60;
+}
+
+.btn-secondary {
+  background: rgba(106, 168, 79, 0.35);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.btn-secondary:hover {
+  background: rgba(106, 168, 79, 0.5);
+}
+
+.btn-ghost {
+  background: rgba(0, 0, 0, 0.35);
+  color: #fce17a;
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.btn-ghost:hover {
+  background: rgba(44, 74, 40, 0.55);
+}
+
+.btn-small {
+  padding: 8px 14px;
+  font-size: 0.9rem;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+/* ----- World level select (numbered grid) ----- */
+.screen-world {
+  background: linear-gradient(165deg, #1a3d28 0%, #0f2418 55%, #0b1d12 100%);
+  flex-direction: column;
+}
+
+.world-header {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.world-heading {
+  text-align: center;
+  min-width: 0;
+}
+
+.world-title {
+  font-size: clamp(1.05rem, 3vw, 1.45rem);
+  font-weight: 800;
+  color: #fce17a;
+  letter-spacing: 0.04em;
+}
+
+.world-subtitle {
+  font-size: clamp(0.8rem, 2.2vw, 0.95rem);
+  color: #c8e8b0;
+  margin-top: 2px;
+}
+
+.world-range {
+  font-size: clamp(0.7rem, 1.8vw, 0.8rem);
+  color: #8a9a7a;
+  margin-top: 4px;
+}
+
+.world-body {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  /* Column + top align: row flex + align-items:center vertically centered the grid, clipping row 1 when content scrolls. */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 14px 14px 18px;
+}
+
+.world-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: clamp(8px, 2vw, 14px);
+  width: 100%;
+  max-width: min(920px, 100%);
+  position: relative;
+  z-index: 1;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+@media (max-width: 520px) {
+  .world-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+  }
+}
+
+.world-level-btn {
+  aspect-ratio: 1;
+  min-height: 72px;
+  min-width: 0;
+  max-height: min(22vh, 140px);
+  margin: 0 auto;
+  width: 100%;
+  border-radius: 14px;
+  border: 3px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.45);
+  color: #7a8a6a;
+  cursor: default;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 4px;
+  font: inherit;
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.world-level-btn .wl-num {
+  font-size: clamp(1.25rem, 4.5vw, 2rem);
+  font-weight: 800;
+  line-height: 1;
+  color: inherit;
+  pointer-events: none;
+}
+
+.world-level-btn .wl-name {
+  font-size: clamp(9px, 1.5vw, 11px);
+  font-weight: 600;
+  color: #a8c898;
+  text-align: center;
+  line-height: 1.15;
+  max-height: 2.4em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  pointer-events: none;
+}
+
+.world-level-btn.is-unlocked {
+  cursor: pointer;
+  color: #fff;
+  border-color: rgba(106, 168, 79, 0.8);
+  background: linear-gradient(155deg, #3f7a45 0%, #1e4220 100%);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(252, 225, 122, 0.35);
+}
+
+.world-level-btn.is-unlocked:hover {
+  transform: scale(1.04);
+  border-color: #fce17a;
+}
+
+.world-level-btn.is-current {
+  box-shadow: 0 0 0 3px #fce17a, 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.world-level-btn.is-locked {
+  opacity: 0.55;
+}
+
+.world-level-btn.is-locked .wl-name {
+  color: #6a7a5a;
+}
+
+.world-footer {
+  flex-shrink: 0;
+  text-align: center;
+  font-size: clamp(0.68rem, 1.6vw, 0.82rem);
+  color: #a8c898;
+  padding: 8px 12px 10px;
+  opacity: 0.95;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* ----- Fullscreen level (canvas) ----- */
+.app.app--game .screen-level {
+  border-radius: 0;
+  border-width: 0;
+}
+
+.screen-level {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #000;
+  flex-direction: column;
+}
+
+.level-fullscreen {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.level-game-stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  /* Shows beside the canvas when object-fit: contain leaves side bands (wide viewports). */
+  background: linear-gradient(180deg, #3d7a5a 0%, #5a9e68 38%, #2d6a3a 72%, #0f2414 100%);
+  overflow: hidden;
+}
+
+/* In-flow spacer: absolutely positioned canvas/HUD do not give this box height — without this, the stage stays ~0px tall. */
+.level-game-stage-sizer {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: clamp(200px, 58dvh, 620px);
+  pointer-events: none;
+}
+
+#game {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  /* Always show full 540px-tall world (ground + sky); wide screens get side bands filled by .level-game-stage gradient. */
+  object-fit: contain;
+  object-position: center center;
+  display: block;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.level-hud-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 12;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: max(8px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 8px
+    max(10px, env(safe-area-inset-left));
+  pointer-events: none;
+}
+
+.hud-cluster {
+  pointer-events: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.badge {
+  background: rgba(0, 0, 0, 0.55);
+  padding: 6px 10px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: clamp(11px, 1.9vw, 14px);
+  color: #d6f0c0;
+}
+
+.badge-btn {
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  background: rgba(106, 168, 79, 0.4);
+}
+
+.badge-btn:hover {
+  background: rgba(106, 168, 79, 0.6);
+}
+
+.btn-icon {
+  padding: 8px 12px;
+  min-height: 40px;
+  min-width: 40px;
+  font-size: 1rem;
+}
+
+.touch-toggle {
+  display: none;
+  position: fixed;
+  z-index: 70;
+  right: max(8px, env(safe-area-inset-right));
+  top: max(48px, calc(env(safe-area-inset-top) + 40px));
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #fff;
+  background: rgba(44, 58, 28, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .touch-toggle {
+    display: block;
+  }
+}
+
+body.touch-ui-force .touch-toggle {
+  display: block;
+  background: rgba(106, 168, 79, 0.95);
+}
+
+.touch-layer {
+  display: none;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 55;
+  pointer-events: none;
+  padding: 6px max(8px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom))
+    max(8px, env(safe-area-inset-left));
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  /* Shorter bar: jump/up/down are horizontal, not stacked. */
+  min-height: 0;
+  height: auto;
+}
+
+@media (pointer: coarse), (hover: none) {
+  .touch-layer {
+    display: flex;
+  }
+}
+
+body.touch-ui-force .touch-layer {
+  display: flex !important;
+}
+
+.touch-zone {
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.touch-left {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 10px;
+  margin-left: clamp(14px, 4.5vw, 40px);
+}
+
+.touch-move {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.touch-pad {
+  width: clamp(56px, 14vw, 76px);
+  height: clamp(52px, 13vw, 72px);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(20px, 5vw, 28px);
+  color: #fce17a;
+  font-weight: bold;
+}
+
+.touch-pad.active,
+.touch-btn.active {
+  background: rgba(106, 168, 79, 0.55);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+/* Up · Jump · Down in one row so less vertical cover over the ground. */
+.touch-actions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-right: clamp(10px, 3.5vw, 36px);
+}
+
+.touch-btn {
+  width: clamp(48px, 11vw, 56px);
+  height: clamp(44px, 10vw, 50px);
+  border-radius: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.45);
+  color: #fce17a;
+  font-size: clamp(15px, 3.5vw, 18px);
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font: inherit;
+}
+
+.touch-btn.touch-climb {
+  width: clamp(44px, 11vw, 54px);
+  height: clamp(44px, 11vw, 54px);
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 12px;
+  font-size: clamp(16px, 4vw, 22px);
+  padding: 0;
+}
+
+.touch-btn.touch-jump {
+  width: clamp(68px, 18vw, 92px);
+  height: clamp(46px, 12vw, 56px);
+  min-height: 46px;
+  border-radius: 14px;
+  font-size: clamp(10px, 2.4vw, 13px);
+  background: rgba(106, 168, 79, 0.45);
+  padding: 0 6px;
+}
+
+.touch-btn.touch-run {
+  width: clamp(50px, 12vw, 58px);
+  height: clamp(50px, 12vw, 58px);
+  border-radius: 50%;
+  font-size: clamp(17px, 4vw, 22px);
+}
+
+.touch-btn.touch-run[aria-checked="true"],
+.touch-btn.touch-run.is-fast {
+  background: rgba(252, 225, 122, 0.35);
+  border-color: rgba(252, 225, 122, 0.75);
+  box-shadow: 0 0 14px rgba(252, 225, 122, 0.35);
+  color: #fff;
+}
+
+.map-node.is-locked .map-node-name {
+  color: #6a7a5a;
+}

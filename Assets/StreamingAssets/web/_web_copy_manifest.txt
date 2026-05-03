@@ -1,0 +1,14 @@
+# Paths relative to the web/ folder — used on Android/iOS when StreamingAssets is inside the APK.
+# Regenerate from Unity: Tools → Web Package → Generate StreamingAssets Web Manifest
+index.html
+css/base.css
+css/screens.css
+css/popups.css
+js/storage.js
+js/world-levels.js
+js/bg-art.js
+js/game.js
+js/app.js
+assets/sprites/leaf.png
+assets/sprites/mist.png
+assets/sprites/tree.png
